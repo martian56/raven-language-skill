@@ -2,6 +2,12 @@
 
 A Skill that teaches Agents how to write [Raven](https://raven.ufazien.com) code without falling into the language's syntax traps on the first try.
 
+# How to use this Skill
+
+```bash
+npx skills add martian56/raven-language-skill
+```
+
 ## What's in the box
 
 ```
