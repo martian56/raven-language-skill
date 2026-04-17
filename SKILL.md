@@ -1,6 +1,9 @@
 ---
 name: raven-language-skill
 description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (math, str, collections, json, filesystem, time, web, network, testing), or running raven/rvpm commands. Raven is a small statically-typed interpreted language with several syntax pitfalls (`elseif` not `else if`, no comments before `else`, no `const`, mandatory type annotations, C-style for loops only) that this skill helps Claude avoid. Trigger even when the user just mentions a `.rv` file or rvpm without asking explicitly for help with syntax. Do NOT trigger for the Raven compiler/interpreter source itself (the `.rs` files in this repo) or unrelated languages.
+metadata:
+  author: martian56
+  version: 1.6.4
 ---
 
 # Raven Language
