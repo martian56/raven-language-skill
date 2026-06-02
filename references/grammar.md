@@ -1,327 +1,291 @@
-# Raven grammar and parser notes
+# Raven grammar and parser notes (v2)
 
-This is the reference for "what does the parser actually accept?" Use it when something parses surprisingly or you need to write code that hits an edge case.
+The reference for "what does the parser actually accept?" Use it when something parses surprisingly.
 
-The authoritative source is `src/lexer.rs`, `src/parser.rs`, `src/ast.rs`, and `src/type_checker.rs` in the Raven repo. Read those when this document and the parser disagree.
+The authoritative source is `src/lexer/`, `src/parser/`, `src/ast/`, and `src/tycheck/` in the Raven repo. Read those when this document and the compiler disagree.
 
 ---
 
 ## Lexical structure
 
-### Keywords (all lowercase, reserved)
+### Keywords (reserved)
 
 ```
-let const fun struct impl enum export
-if elseif else while for return
-import from
-print
-and or not
+let const fun struct impl enum trait
+if else while for loop in return match
+break continue defer spawn import as extern macro
 true false
-int float bool string void
 ```
 
-`const` is reserved by the lexer but **not handled** by the parser — using it gives an "Unexpected token" error.
+Type names (`Int`, `Float`, `Bool`, `String`, `Char`, `Unit`, `List`, `Map`, `Set`, `Option`, `Result`, the `C*` FFI types) are PascalCase identifiers, not keywords. `const` is reserved but unusable in practice: it does not parse inside a function body, and a top-level `const`/`let` binding mis-types as `Unit`.
 
 ### Identifiers
 
-`[A-Za-z_][A-Za-z0-9_]*`. Case-sensitive.
+`[A-Za-z_][A-Za-z0-9_]*`, case-sensitive. Types and enum variants are conventionally PascalCase; functions and variables snake_case.
 
 ### Literals
 
-| Kind    | Examples                          |
-| ------- | --------------------------------- |
-| int     | `0`, `42`, `9223372036854775807`  |
-| float   | `0.5`, `3.14`, `1.0`              |
-| bool    | `true`, `false`                   |
-| string  | `"hello"`, `""`, `"with \"quote\""`|
-| array   | `[]`, `[1, 2, 3]`                 |
+| Kind     | Examples                                              |
+| -------- | ---------------------------------------------------- |
+| Int      | `0`, `42`, `-5` (unary minus)                        |
+| Float    | `0.5`, `3.14`, `1.0`                                 |
+| Bool     | `true`, `false`                                      |
+| Char     | `'R'`, `'\n'`                                         |
+| String   | `"hello"`, `"with ${expr}"`, `"""block string"""`    |
+| C string | `c"hello"` (null-terminated, FFI)                    |
+| List     | `[]`, `[1, 2, 3]`                                    |
+| Map      | `["a": 1, "b": 2]`, `[:]` (empty)                    |
+| Set      | `{1, 2, 3}`                                          |
 
-No scientific notation. No hex/oct/bin literals. No char type — character data is single-character strings.
+### String interpolation
 
-### Negative numbers
+`"${expr}"` splices `expr` into the string. Limitations:
 
-`-5` lexes as two tokens: `Minus` then `IntLiteral(5)`. Resolved as unary minus during parsing.
-
-### String escapes
-
-Recognised: `\n`, `\r`, `\t`, `\0`, `\"`, `\\`. Anything else (e.g. `\x`) is preserved literally.
+- The interpolated expression cannot itself contain a `"`-delimited string literal: `"${greet("x")}"` fails to parse. Bind to a local first.
+- It cannot contain a macro invocation: `"${m!(1)}"` is rejected. Bind to a local first.
+- A struct value cannot be interpolated unless converted: use `${v.to_string()}` (with `@derive(ToString)`).
 
 ### Comments
 
 - `// to end of line`
-- `/* block — does not nest */`
-
-Block comments end at the **first** `*/`; nesting is not supported.
+- `/* block, does not nest */`
 
 ### Operators
 
-Arithmetic: `+ - * / %`
-Comparison: `== != < > <= >=`
-Logical: `&& || !` and the word forms `and or not`
-Assignment: `=`
-Type annotation: `:`
-Statement end: `;`
-Member access: `.`
-Enum variant: `::`
-Function return arrow: `->`
-List separator: `,`
-Range / slicing: `..` (parsed but currently used in slicing-style contexts only)
+```
+Arithmetic:  + - * / %
+Comparison:  == != < > <= >=
+Logical:     && || !          (the words and/or/not are NOT operators)
+Bitwise:     & | ^ << >>
+Assignment:  =  +=  -=  *=  /=  %=  &=  |=  ^=  <<=  >>=
+Range:       ..  (exclusive)   ..=  (inclusive)
+Error prop:  ?    (postfix, on Result/Option)
+Arrow:       ->   (function return type)
+Match arm:   ->   (arm body)     (arms separated by commas or newlines)
+Member:      .    (field, method, and qualified enum: EnumName.Variant)
+Generic:     <T>  at definitions and call sites (no turbofish ::<>)
+Attribute:   @derive(...), @repr(C)
+Macro call:  name!(...)
+```
+
+There is no statement terminator. Newlines and braces separate statements. A `;` is not used.
 
 ---
 
 ## Operator precedence (low to high)
 
-1. `||` / `or`
-2. `&&` / `and`
-3. `==` `!=`
-4. `<` `>` `<=` `>=`
-5. `+` `-` (binary)
-6. `*` `/` `%`
-7. unary `-`, `!`, `not` (prefix, right-associative)
-8. method/field/index chain — `.`, `[]`, `()`
+1. `||`
+2. `&&`
+3. `== !=`
+4. `< > <= >=`
+5. `| ^ &` (bitwise)
+6. `<< >>`
+7. `+ -`
+8. `* / %`
+9. unary `-`, `!`
+10. postfix `?`
+11. call / index / field / method chain: `()`, `[]`, `.`
 
-Use parentheses to override.
-
-**Both sides of `&&` and `||` are evaluated.** Short-circuit semantics are not implemented. This affects guard idioms like `if (i < len(a) and a[i] == 0)` — the second clause runs even when the first is false, so `a[i]` will out-of-range if `i >= len(a)`.
+Use parentheses to override. `&&` and `||` short-circuit.
 
 ---
 
-## Top-level statements
+## Items (top level)
 
-A program is a sequence of statements at module scope. They execute top to bottom, so functions/structs/enums must be defined before they are first called.
+A program is a set of top-level items. Order does not matter for resolution (functions, types, and traits are visible across the whole module). `fun main()` is the entry point and is called by the runtime, not by you.
 
-### Variable declaration
+### Variable declaration (inside function bodies)
 
 ```
-let <ident>: <type> = <expr>;
-let <ident>: <type>;            // only valid for struct types — primitives must have an initialiser
+let <ident> = <expr>
+let <ident>: <type> = <expr>
 ```
+
+`let` bindings are mutable and reassignable. Empty collection literals need a type: `let xs: List<Int> = []`.
 
 ### Function declaration
 
 ```
-fun <ident>(<params>) -> <return_type> { <stmts> }
-fun <ident>(<params>) { <stmts> }                // return type defaults to void
+fun <ident>(<params>) -> <type> { <stmts> }
+fun <ident>(<params>) { <stmts> }              // returns Unit
+fun <ident>(<params>) -> <type> = <expr>       // single-expression body
+fun <ident><<generics>>(<params>) -> <type> { ... }   // generic, with optional bounds <T: Trait>
 ```
 
-`<params>` is comma-separated `name: type` pairs. Trailing comma not necessary. The arrow `->` is required when an explicit return type is given.
+`<params>` are comma-separated `name: Type`.
 
-### Struct declaration
+### Struct
 
 ```
 struct <Name> {
-    field1: <type>,
-    field2: <type>,
+    field1: <Type>,
+    field2: <Type>,
 }
+struct <Name><<generics>> { ... }
+struct <Name> {}                  // empty
 ```
 
-Trailing comma allowed. Comments inside the body are preserved by the formatter.
+Construct with `Name { field: value, ... }`. Field punning is allowed: `Name { x }` when a local `x` is in scope.
 
-### Impl block (methods)
+### Trait and impl
 
 ```
-impl <StructName> {
-    fun <method>(self, <other params>) -> <type> { ... }
-    ...
+trait <Name> {
+    fun method(self) -> <Type>
+    fun method2(self, other: <Type>) -> <Type>
 }
+
+impl <Name> { fun inherent(self) -> <Type> { ... } }     // inherent methods
+impl <Trait> for <Name> { fun method(self) -> <Type> { ... } }   // trait impl
+impl<T> <Name><T> { ... }                                 // generic impl
 ```
 
-The first parameter MUST be `self`. Type annotation on `self` is optional (inferred). Methods chain by calling on the receiver.
+The first method parameter is `self`. Static (associated) methods omit `self`: `fun new() -> <Name> { ... }`, called as `Name.new()`.
 
-### Enum declaration
+### Enum (sum type)
 
 ```
 enum <Name> {
-    Variant1,
-    Variant2,
+    UnitVariant,
+    Tuple(Type, Type),
+    Single(Type),
 }
 ```
 
-No payloads. Construct with `Name::Variant1`. Compare with `==`.
+Construct qualified: `Name.UnitVariant`, `Name.Tuple(a, b)`. Match patterns are bare: `Tuple(a, b) -> ...`.
 
 ### Import
 
 ```
-import "module";                       // file lookup, exports merged into scope
-import math;                           // bare identifier, namespaced as math.fn()
-import alias from "module";            // namespaced under alias
-import { f1, f2 } from "module";       // selective
+import std/<module>                 // bundled stdlib module (types/methods merge)
+import std/<module> { a, b }        // selective: free functions and types by name
+import "./relative"                 // sibling file ./relative.rv
+import "./relative" { a, b }
+import "github.com/user/repo"       // package root (lib.rv), fetched by rvpm
+import "github.com/user/repo" { a } // selective
+import "github.com/user/repo/sub" { a }   // sub-module sub.rv
 ```
 
-### Export
+Stdlib free functions must be imported by name to be called unqualified; there is no `module.function()` call form.
+
+### extern (C FFI)
 
 ```
-export fun ...
-export let ...
+extern "C" {
+    fun c_function(x: CInt) -> CInt
+}
 ```
 
-Wraps a declaration to make it visible to importers.
+### macro
+
+```
+macro <name> { (<matcher>) => { <template> } }
+```
+
+Metavariables `$x:expr`, `$x:ident`; repetition `$(...)*` and `$(...)+`. Invoke as `name!(args)`.
+
+### Attributes
+
+```
+@derive(Eq, Hash, ToString, Debug, ToJson, FromJson)
+@repr(C)
+```
+
+Placed immediately before a `struct` or `enum`.
+
+---
+
+## Statements and expressions
 
 ### Control flow
 
 ```
-if (<cond>) { ... }
-if (<cond>) { ... } elseif (<cond>) { ... }
-if (<cond>) { ... } elseif (<cond>) { ... } else { ... }
+if <cond> { ... }
+if <cond> { ... } else if <cond> { ... } else { ... }
+// `if` is also an expression: let s = if c { a } else { b }
 
-while (<cond>) { ... }
+while <cond> { ... }
+loop { ...; break }
+for <name> in <iterable> { ... }        // 0..n, 1..=n, or a List
 
-for (let <name>: <type> = <init>; <cond>; <name> = <expr>) { ... }
+break
+continue
+return <expr>
+return
+defer <expr>                            // runs at function exit, LIFO
 ```
 
-`elseif` is **one** word. `else if` does not parse. Comments between `}` and `elseif`/`else` do not parse.
-
-The for-loop init must be a `let` declaration with a type annotation. The increment must be an assignment. There's no for-in form.
-
-No `break`, no `continue`. Exit early by setting a boolean flag and reading it in the loop condition, or by `return`ing out of the enclosing function.
-
-### Return
+### match
 
 ```
-return <expr>;
-return;          // valid in void functions
+match <scrutinee> {
+    Pattern1 -> <expr>,
+    Pattern2(a, b) -> { <stmts> },
+    Some(x) -> ...,
+    None -> ...,
+    _ -> ...,            // wildcard
+}
 ```
 
-### Print (statement form)
+Exhaustive at compile time. Arms are separated by commas (and/or newlines). Matching on `String` literal patterns is currently broken (falls through to `_`); use `==` instead.
+
+### Closures
 
 ```
-print(<args>);
+fun(x: Int) -> Int = x * 2        // expression-bodied closure
+fun(x: Int) -> Int { return x*2 } // block-bodied
 ```
 
-Same as the function call.
+Closures capture their environment.
 
-### Expression statement
-
-Any expression followed by `;`.
-
----
-
-## Expressions
-
-### Function calls
+### Calls, fields, indexing
 
 ```
-f()
-f(a, b, c)
-```
-
-Arguments are evaluated left to right before the call.
-
-### Method / field access
-
-```
+f(a, b)
 obj.field
-obj.method()
 obj.method(args)
-arr[i]
-arr[i].method()
+xs[i]
 matrix[i][j]
-chain().of().calls()
+xs.iter().map(...).filter(...)
+Name.StaticMethod(args)
+Enum.Variant(args)
+generic_fn<Int>(x)
 ```
-
-The parser greedily continues with `.`, `[]`, and `()` until none applies.
-
-### Struct construction
-
-```
-Name { field: value, field: value }
-```
-
-All fields required, order doesn't matter.
-
-### Enum variant
-
-```
-EnumName::VariantName
-```
-
-### Array literal
-
-```
-[]
-[1, 2, 3]
-```
-
-Empty literal needs the variable to be typed (`let xs: int[] = [];`). Nested literals (`[[1,2],[3,4]]`) need the variable to be `int[][]`.
 
 ---
 
 ## Type system summary
 
-Types accepted in annotations:
+- Primitives: `Int` (i64), `Float` (f64), `Bool`, `String`, `Char`, `Unit`.
+- Collections: `List<T>`, `Map<K, V>`, `Set<T>`.
+- Sum/optional: `Option<T>` (sugar `T?`), `Result<T, E>`.
+- User types: `struct`, `enum`, plus `trait` bounds on generics.
+- Trait objects: `dyn Trait` (single value; `List<dyn Trait>` is not yet supported).
+- FFI: `CInt`, `CLong`, `CSize`, `CFloat`, `CDouble`, `CStr`, `CPtr<T>`, `CFnPtr`, `Any`, `Channel`.
 
-- Primitive: `int`, `float`, `bool`, `string`, `void`
-- User-defined: any in-scope `struct` or `enum` name
-- Array: append `[]` for each dimension. `int[]`, `string[][]`, `Cell[][]`
+Generics monomorphize (static dispatch). Type arguments use `<T>` at the call site, never turbofish.
 
-No generics, no union types, no optionals.
+### Conversions
 
-### Conversions and coercions
+No implicit numeric coercion and no cast syntax. Build strings with interpolation (`"${x}"`) or `to_string()` where derived. Parse with the relevant stdlib function (returning `Result`/`Option`).
 
-| From → To       | Implicit? | How to do it explicitly |
-| --------------- | --------- | ----------------------- |
-| `int` → `float` | No        | `x + 0.0` (in arithmetic, the result is float) |
-| `float` → `int` | No        | None built in. Use `math.floor` then accept loss of float-ness, or do it via string |
-| anything → `string` | No (except in `+` with a string operand) | `format("{}", x)` |
-| `string` → `int` | No        | `parse_int(s)` (returns 0 on failure) |
+### Equality and ordering
 
-`+` with a string operand on either side concatenates and stringifies the other operand — this is the one implicit conversion. Other arithmetic operators error on type mismatches.
-
-### Equality
-
-`==` and `!=` work on all types and require both sides to have the same type.
-
-### Order comparisons
-
-`<`, `>`, `<=`, `>=` require numeric types (int or float).
+`==`/`!=` work on matching types (and on `String` by value). Ordering `< <= > >=` works on numbers; `String` has no ordering operators in this release.
 
 ---
 
-## Runtime semantics worth knowing
+## What exists in v2 that did not in v1
 
-### Scope
+Reach for these freely now: generics, traits, `dyn Trait`, sum types with payloads, exhaustive `match`, `Option`/`Result`/`?`, closures, `break`/`continue`, compound assignment (`+=` …), `else if`, `for x in xs`, string interpolation, `defer`, goroutines (`spawn`) and channels, a C FFI, `@derive`, declarative macros, and compile-time/runtime reflection.
 
-There are no block scopes. Variables declared inside `if`/`while`/`for` bodies live in the enclosing function's scope. Re-declaring with the same name overwrites.
+## Things that still don't work / don't exist
 
-### Functions
-
-Calls save the caller's variable map, install the parameters as locals, run the body, then restore. There are no closures — functions cannot capture variables from enclosing scopes.
-
-### Method calls and `self`
-
-When calling `obj.method()` where `obj` is a variable, mutations to `self` inside the method persist on `obj`. When called on an expression (e.g. a freshly-constructed struct), the mutated `self` is discarded.
-
-### Arrays
-
-Cloned on assignment and on parameter passing. `arr.push(x)` on a local variable mutates that local. `arr.push(x)` inside a function that received `arr` as a parameter typically mutates only the local copy — design helpers to **return** their array instead of mutating.
-
-### Strings
-
-Immutable. All methods return new strings.
-
-### Modules
-
-Loaded once and cached. The first `import "x"` parses and runs `x.rv` to completion (top-level side effects happen). Subsequent imports just bring symbols into scope.
-
----
-
-## Things that don't exist
-
-A short list of "don't reach for these":
-
-- `null`, `nil`, `None`, `undefined`
-- `try`/`catch`, exceptions, `Result`/`Option`
-- Generics
-- Pattern matching
-- Closures / lambdas
-- `break`, `continue`
-- `++`, `--`, compound assignment (`+=`, `-=`, etc.)
-- `else if` (use `elseif`)
-- `for x in xs` (use a C-style index loop)
-- Single-statement `if`/`while`/`for` bodies (always need `{ }`)
-- Type casting syntax — no `(int)x`, no `x as int`
-- Operator overloading
-- Visibility modifiers other than `export`
-- Default parameter values
-- Variadic parameters in user functions (`format`/`print` are special-cased in the interpreter)
-- String interpolation outside of `format`/`print` (no `${}` or `f"..."`)
+- `null`, `nil`, `None`-as-keyword (use the `None` value of `Option`).
+- `const` (parses nowhere useful; use `let`).
+- Reliable module-level mutable state (top-level `let` mis-types as `Unit`).
+- `module.function()` qualified calls (import the name instead).
+- `String.len()` (use `.length()`), `String` ordering operators, `match` on `String` literals.
+- `List<dyn Trait>`.
+- Turbofish `::<T>`.
+- Exceptions / `try`/`catch` (use `Result` and `?`).

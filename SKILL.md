@@ -1,347 +1,375 @@
 ---
 name: raven-language-skill
-description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (math, str, collections, json, filesystem, time, web, network, testing), or running raven/rvpm commands. Raven is a small statically-typed interpreted language with several syntax pitfalls (`elseif` not `else if`, no comments before `else`, no `const`, mandatory type annotations, C-style for loops only) that this skill helps Claude avoid. Trigger even when the user just mentions a `.rv` file or rvpm without asking explicitly for help with syntax. Do NOT trigger for the Raven compiler/interpreter source itself (the `.rs` files in this repo) or unrelated languages.
+description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (std/io, std/string, std/collections, std/math, std/iter, std/fs, std/time, std/json, std/net, std/http, std/ffi, std/sync), or running raven/rvpm commands. Raven v2 is a statically-typed compiled language (Cranelift backend, tracing GC) with generics, traits, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. It has a few syntax pitfalls (no semicolons, PascalCase types, no `const`, string-method name is `.length()` not `.len()`, enum construction is qualified) that this skill helps Claude avoid. Trigger even when the user just mentions a `.rv` file or rvpm. Do NOT trigger for the Raven compiler source itself (the `.rs` files) or unrelated languages.
 metadata:
   author: martian56
-  version: 1.6.4
+  version: 2.0.2
 ---
 
-# Raven Language
+# Raven Language (v2)
 
-Raven is a small statically-typed, tree-walking interpreted language implemented in Rust. Its syntax looks like a hybrid of Rust and TypeScript but the rules are stricter and there are several non-obvious pitfalls. The single most useful thing this skill does is steer you away from those pitfalls so the first version of your code parses and type-checks.
+Raven v2 is a statically-typed, ahead-of-time compiled language implemented in Rust. Source lowers through a resolver, type checker, HIR, and a monomorphizing MIR, then a Cranelift backend emits a native binary. Memory is managed by a tracing garbage collector. The syntax reads like a blend of Rust and Swift, with local type inference, no semicolons, traits, generics, sum types, and pattern matching. The single most useful thing this skill does is steer you away from the non-obvious pitfalls so the first version of your code parses, type-checks, and links.
+
+> v2 is a clean break from v1. If you find old material mentioning `elseif`, C-style `for` loops, `int`/`string` lowercase types, `format("{}", x)`, `import math;`, or `main();` at the bottom of a file, that is v1 and does not apply here.
 
 ## When to read what
 
-- **This file**: read every time. It contains the gotchas that catch people on their first program and the templates you'll mimic for most tasks.
-- **`references/builtins.md`**: when you need a built-in function (`print`, `format`, `read_file`, HTTP, time, etc.) and want the exact signature.
-- **`references/stdlib.md`**: when importing from `math`, `str`, `collections`, `filesystem`, `json`, `time`, `web`, `network`, `testing` — full per-module API.
-- **`references/rvpm.md`**: when initialising a project, configuring `rv.toml`, formatting, or running.
-- **`references/grammar.md`**: when something parses surprisingly and you need the exact rules.
+- **This file**: read every time. The pitfalls and templates cover most tasks.
+- **`references/builtins.md`**: the always-available functions and the methods on `String`, `List`, `Map`, `Set`.
+- **`references/stdlib.md`**: per-module API for `std/io`, `std/string`, `std/collections`, `std/math`, `std/iter`, `std/fs`, `std/time`, `std/json`, and more.
+- **`references/rvpm.md`**: starting a project, `rv.toml`, GitHub-direct packages, the `raven` and `rvpm` CLIs.
+- **`references/grammar.md`**: exact lexical and grammar rules when something parses surprisingly.
 
-If unsure what symbol exists, you can also read `lib/<module>.rv` directly from the Raven repo — the stdlib is written in Raven itself.
+The stdlib source lives in `stdlib/std/*.rv` in the Raven repo and is written in Raven itself, so reading it is the authoritative answer for any signature.
 
 ## Pitfalls to internalise
 
 These are the mistakes that ruin first-try compilation. Burn them in.
 
-1. **`elseif`, not `else if`.** One word. `} elseif (cond) { ... }`. Two-word `else if` will not parse.
-2. **No comments between `}` and `else`/`elseif`.** The next token after the closing brace must be `else`/`elseif`. A `// remark` in between turns into a parse error.
-3. **`const` does nothing.** It's lexed but not parsed. Use `let` for everything.
-4. **For loops are C-style only.** `for (let i: int = 0; i < n; i = i + 1) { ... }`. The `let`, the type, the explicit `i = i + 1` are all required. There is no `for x in arr`, no `i++`, no `+=`.
-5. **No `break` or `continue`.** Restructure with `while` and a flag.
-6. **Type annotations are mandatory.** Every `let`, every function parameter, every function return type, every struct field needs `: type`. Type inference exists in some places but assume it doesn't.
-7. **No implicit conversions and no cast syntax.** `let s: string = 5;` is a type error. There is no `x as string`, no `(int)x`, no `string(x)`. Stringify with `format("{}", x)`. Parse with `parse_int(s)` (returns 0 on failure — there's no exception).
-8. **No null/None.** Initialise everything. Primitives must have an initialiser at declaration; structs may declare without one and start with default fields.
-9. **String concat with `+` works but only with strings on the left in some contexts.** Safer: always use `format("{} {}", a, b)`.
-10. **Arrays passed to functions don't reliably mutate the caller.** Inside a function, `arr.push(x)` may modify only the local copy. Idiom: have helpers **return** their array, then concatenate in the caller. (See "Array mutation" below.)
-11. **Methods need `self` as the first parameter** in `impl` blocks. Without it, the parser/type-checker rejects it.
-12. **Negative literals are unary minus.** `-5` is `-` applied to `5`. Usually transparent, but matters when you're reasoning about the AST or precedence.
-13. **`&&`/`||` do NOT short-circuit.** Both sides are always evaluated. Don't write `if (ptr != null && ptr.field)` style patterns — though "null" doesn't exist anyway, this matters for things like `if (i < len(a) and check(a[i]))` (a guard followed by an indexed access). If `i` is out of range, `check(a[i])` still runs and crashes. Restructure.
-14. **`enum` variants have no data and no pattern matching.** Compare with `==`. Construct with `EnumName::Variant`. Convert from string with `enum_from_string("EnumName", "Variant")`.
-15. **Statement terminators**: every declaration, assignment, expression statement, `return`, `print(...)`, and `import` ends with `;`. Block statements (`if`, `while`, `for`, function bodies, etc.) do not.
-16. **Stdlib collection mutators return new values — reassign.** `Map.set`, `Map.remove`, `Set.add`, `Set.remove`, `Stack.push`, `Stack.pop`, `Queue.enqueue`, `Queue.dequeue` all return a new collection. `map.set("k","v");` looks fine but throws away the result. Write `map = map.set("k", "v");`. Same for sets, stacks, queues. Constructors are `collections.new_map()`, `collections.new_set()`, `collections.new_stack()`, `collections.new_queue()` — not `Map.new()` or `HashMap.new()`. Membership is `map.has(k)`, not `contains_key`.
-17. **`fun main()` must be invoked.** Define it at the top of the file, then call it on the last line: `main();`. Top-level statements run, but a function defined and never called doesn't.
+1. **No semicolons.** Statements end at the newline. Do not terminate lines with `;`.
+2. **Types are PascalCase.** `Int`, `Float`, `Bool`, `String`, `Char`, `Unit`. There is no `int`/`string`. `Unit` is the no-value type (the implicit return).
+3. **Type annotations are optional.** Local inference works: `let x = 5` infers `Int`. Annotate when you want to be explicit or when inference can't tell (`let xs: List<Int> = []`). Function parameters and return types are still written out.
+4. **`let` is mutable; there is no `let mut`.** Reassign freely. Compound assignment works: `+= -= *= /= %=`. `const` is effectively unusable right now (it does not parse inside a function, and a top-level `const`/`let` mis-types as `Unit`), so use `let` and declare values inside `fun main` or return them from a function.
+5. **Logical operators are `&&`, `||`, `!`.** The words `and`/`or`/`not` are NOT operators.
+6. **`else if` is two words** (v1's `elseif` is gone). `if` is also an expression: `let s = if x > 0 { "pos" } else { "neg" }`.
+7. **`for` is range/iterator based.** `for i in 0..10 { }` (exclusive), `for i in 1..=10 { }` (inclusive), `for item in list { }`. `while cond { }` and `loop { }` exist. `break` and `continue` work.
+8. **String interpolation is `"${expr}"`.** Two real limitations: an interpolation cannot contain a nested string literal (`"${f("x")}"` fails to parse) and cannot contain a macro call (`"${m!(1)}"`). Bind those to a local first, then interpolate the local. A struct value cannot be interpolated directly; call `.to_string()` (works when the struct derives `ToString`).
+9. **`String` length is `.length()`, not `.len()`.** `.len()` type-checks but fails in codegen. `List`/`Map`/`Set` use `.len()`. String methods (`.to_upper()`, `.trim()`, `.split()`, `.concat()`, …) require `import std/string`.
+10. **No `null`.** Absence is `Option<T>` (sugar `T?`) with `Some(x)`/`None`. Fallible results are `Result<T, E>` with `Ok(x)`/`Err(e)` and the `?` operator. `Some`, `None`, `Ok`, `Err` are in scope without imports.
+11. **Enum variants are constructed qualified:** `Shape.Circle(2.0)`, `Color.Red`. In `match`, the patterns are bare: `Circle(r) -> ...`. `match` is exhaustive.
+12. **No visibility modifiers.** Every top-level `fun`/`struct`/`enum`/`trait` is importable. There is no `export` and no `pub`.
+13. **`fun main()` is the entry point.** Define it; do NOT call `main()` yourself. There is no top-level statement execution.
+14. **Free functions must be imported by name, not module-qualified.** Write `import std/fs { write }` then `write(path, data)`. `fs.write(...)` does not work. Types (`Map`) and methods (`.to_upper`) come in through `import std/collections { Map }` / `import std/string`.
+15. **`match` on `String` literal patterns is currently broken** (it falls through to the wildcard). Compare strings with `==` / `if`-chains instead. Strings also have no `<`/`>` ordering operators.
+16. **Module-level mutable state is unreliable.** A top-level `let`/`const` binding mis-types as `Unit`. Keep state inside functions, thread it through parameters, or hold it in a struct you pass around.
 
 ## Anatomy of a Raven file
 
 ```raven
-// imports first
-import "board";              // local file (./board.rv or src/board.rv)
-import math;                 // stdlib module — call as math.sqrt(...)
-import str from "str";       // stdlib alias — call as str.to_upper(...)
-import { trim, contains } from "str";  // selective — bare names
+// imports: std modules by name, locals and packages by quoted path
+import std/io { println }
+import std/collections { Map }
+import "./board"                              // local ./board.rv
+import "github.com/user/raven-json" { parse } // GitHub-direct package
 
-// types
+// a trait
+trait Display {
+    fun show(self) -> String
+}
+
+// a struct + an impl of the trait + inherent methods
 struct Point {
-    x: float,
-    y: float,
+    x: Float,
+    y: Float,
 }
 
-// methods on a struct
+impl Display for Point {
+    fun show(self) -> String = "(${self.x}, ${self.y})"
+}
+
 impl Point {
-    fun distance_from_origin(self) -> float {
-        return math.sqrt(self.x * self.x + self.y * self.y);
-    }
+    fun magnitude(self) -> Float = sqrt(self.x * self.x + self.y * self.y)
 }
 
-// exports for other modules
-export fun midpoint(a: Point, b: Point) -> Point {
-    return Point {
-        x: (a.x + b.x) / 2.0,
-        y: (a.y + b.y) / 2.0,
-    };
-}
+import std/math { sqrt }
 
-// program entry — call main() at top level
-fun main() -> void {
-    let p: Point = Point { x: 3.0, y: 4.0 };
-    print(format("distance = {}", p.distance_from_origin()));
+// a free function (single-expression body)
+fun midpoint(a: Point, b: Point) -> Point =
+    Point { x: (a.x + b.x) / 2.0, y: (a.y + b.y) / 2.0 }
+
+// entry point: defined, never called by you
+fun main() {
+    let p = Point { x: 3.0, y: 4.0 }
+    println("mag = ${p.magnitude()}")
+    println(p.show())
 }
-main();
 ```
 
-A few rules implicit in this:
+Implicit rules:
 
-- **Modules**: imported by file stem; `import "board"` finds `./board.rv` or in `src/`. `import math` reaches into the stdlib (`lib/math.rv`).
-- **Top-level execution**: top-level statements run top-to-bottom. The convention is to put the program in `fun main()` and call `main();` on the last line.
-- **Trailing commas** are allowed inside struct definitions/instantiations and array literals.
-- **Exported items** become available in the importer's scope; with `import "x"`, names are merged as if declared locally (so `starting_cells()` defined in `rules.rv` is callable as `starting_cells()` from another file that did `import "rules";`). With `import x;` (stdlib-style), exports live under the namespace `x.fn()`.
+- **Imports**: `import std/<module> { names }` for the bundled stdlib; `import "./rel"` for a sibling file; `import "github.com/user/repo" { names }` for a package fetched by rvpm. Selectors bring the names into scope unqualified.
+- **No entry call**: the runtime calls `main` for you.
+- **Single-expression bodies**: `fun f(...) -> T = <expr>` is shorthand for `{ return <expr> }`.
+- **Trailing commas** are allowed in struct definitions/literals and collection literals.
 
 ## Templates
 
 Working code you can adapt. These compile.
 
-### Iterate an array
+### Variables, control flow
 
 ```raven
-let xs: int[] = [10, 20, 30];
-for (let i: int = 0; i < len(xs); i = i + 1) {
-    print(format("xs[{}] = {}", i, xs[i]));
-}
-```
-
-### Build an array
-
-```raven
-fun ints_up_to(n: int) -> int[] {
-    let out: int[] = [];
-    for (let i: int = 0; i < n; i = i + 1) {
-        out.push(i);
-    }
-    return out;
-}
-```
-
-### Array mutation pitfall
-
-This works (push on a local):
-
-```raven
-fun seven() -> int[] {
-    let m: int[] = [];
-    m.push(7);
-    return m;
-}
-```
-
-This may **not** mutate the caller's array, depending on context:
-
-```raven
-fun add_seven(m: int[]) -> void {
-    m.push(7);   // may mutate only the local copy
-}
-```
-
-Safe pattern — return and concat:
-
-```raven
-fun pawn_moves(board: Cell[][], r: int, c: int) -> int[] {
-    let m: int[] = [];
-    m.push(r); m.push(c); /* … */
-    return m;
-}
-
-fun all_moves(board: Cell[][]) -> int[] {
-    let out: int[] = [];
-    for (let r: int = 0; r < 8; r = r + 1) {
-        let part: int[] = pawn_moves(board, r, 0);
-        for (let i: int = 0; i < len(part); i = i + 1) {
-            out.push(part[i]);
+fun main() {
+    let total = 0
+    for i in 1..=10 {
+        if i % 2 == 0 {
+            total += i
         }
     }
-    return out;
+    let label = if total > 20 { "big" } else { "small" }
+    print("${total} is ${label}")
 }
 ```
 
-### Struct with methods
+### Collections and iterators
 
 ```raven
-struct Counter {
-    n: int,
+import std/io { println }
+import std/collections { Map }
+import std/iter { collect, fold }
+
+fun main() {
+    let nums = [1, 2, 3, 4, 5, 6]
+    println("len = ${nums.len()}, first = ${nums[0]}")
+
+    // lazy pipeline: consume with collect / fold / count
+    let doubledEvens: List<Int> =
+        collect(nums.iter().filter(fun(x: Int) -> Bool = x % 2 == 0).map(fun(x: Int) -> Int = x * 2))
+    println("count = ${doubledEvens.len()}")
+
+    let sum = fold(nums.iter(), 0, fun(acc: Int, v: Int) -> Int = acc + v)
+    println("sum = ${sum}")
+
+    let tally: Map<String, Int> = Map.new()
+    tally.set("a", 1)
+    match tally.get("a") {
+        Some(n) -> println("a = ${n}"),
+        None -> println("missing"),
+    }
+}
+```
+
+### Struct, trait, dynamic dispatch
+
+```raven
+trait Shape {
+    fun area(self) -> Float
 }
 
-impl Counter {
-    fun inc(self) -> void {
-        self.n = self.n + 1;
+struct Circle { r: Float }
+struct Square { side: Float }
+
+impl Shape for Circle {
+    fun area(self) -> Float = 3.14159 * self.r * self.r
+}
+impl Shape for Square {
+    fun area(self) -> Float = self.side * self.side
+}
+
+fun describe(s: dyn Shape) {
+    print("area = ${s.area()}")
+}
+
+fun main() {
+    describe(Circle { r: 2.0 })
+    describe(Square { side: 3.0 })
+}
+```
+
+Note: `List<dyn Trait>` (a heterogeneous list of trait objects) is not supported in this release. Pass trait objects to `dyn`-typed parameters or assign to a `dyn`-typed local.
+
+### Enums, match, Option, Result, ?
+
+```raven
+enum Shape {
+    Circle(Float)
+    Rectangle(Float, Float)
+}
+
+fun area(s: Shape) -> Float =
+    match s {
+        Circle(r) -> 3.14159 * r * r,
+        Rectangle(w, h) -> w * h,
     }
 
-    fun get(self) -> int {
-        return self.n;
+fun checked_div(a: Int, b: Int) -> Result<Int, String> {
+    if b == 0 {
+        return Err("divide by zero")
+    }
+    return Ok(a / b)
+}
+
+fun halve_then_div(a: Int, b: Int) -> Result<Int, String> {
+    let q = checked_div(a, b)?    // ? propagates Err, unwraps Ok
+    return Ok(q / 2)
+}
+
+fun main() {
+    print("${area(Shape.Circle(2.0))}")
+    match halve_then_div(20, 5) {
+        Ok(v) -> print("ok ${v}"),
+        Err(e) -> print("err ${e}"),
     }
 }
-
-let c: Counter = Counter { n: 0 };
-c.inc();
-c.inc();
-print(c.get());   // 2
 ```
 
-`self` mutations persist when the method is called on a **variable**. They don't persist when called on a freshly-constructed expression like `Counter { n: 0 }.inc()`.
-
-### Enums
+### Generics with a trait bound
 
 ```raven
-enum Status {
-    Pending,
-    Active,
-    Done,
+trait Describe {
+    fun describe(self) -> String
 }
 
-let s: Status = Status::Active;
-if (s == Status::Active) {
-    print("running");
+struct Dog {}
+impl Describe for Dog {
+    fun describe(self) -> String = "a dog"
 }
-let parsed: Status = enum_from_string("Status", "Done");
+
+fun announce<T: Describe>(x: T) {
+    print("this is ${x.describe()}")
+}
+
+fun main() {
+    announce(Dog {})
+}
 ```
 
-No payloads, no pattern matching. Compare with `==`.
-
-### If / elseif / else
+### defer (LIFO, runs at function exit)
 
 ```raven
-if (x < 0) {
-    print("negative");
-} elseif (x == 0) {
-    print("zero");
-} else {
-    print("positive");
+fun main() {
+    let log = [1]
+    defer log.push(3)    // runs second
+    defer log.push(2)    // runs first
+    print("len now ${log.len()}")
 }
 ```
 
-Keep `} elseif (` and `} else {` together. No comments in the gap.
-
-### Read input, parse, branch
+### Concurrency: spawn + channels
 
 ```raven
-let line: string = input("> ");
-let n: int = parse_int(line);   // returns 0 if not a number
-if (n == 0) {
-    print("not a positive number");
-} else {
-    print(format("got {}", n));
+import std/sync { channel, channel_buffered, yield_now }
+
+fun main() {
+    let ch = channel()
+    spawn(fun() -> Unit {
+        let i = 1
+        while i <= 5 {
+            ch.send(i)
+            i = i + 1
+        }
+    })
+    let sum = 0
+    let n = 0
+    while n < 5 {
+        sum += ch.recv()
+        n += 1
+    }
+    print("sum = ${sum}")   // 15
 }
 ```
 
-### Reading and writing files
+Channels carry `Int` and block (yielding to the cooperative scheduler) when full or empty.
+
+### Metaprogramming: derive + macros + reflection
 
 ```raven
-if (file_exists("data.txt")) {
-    let body: string = read_file("data.txt");
-    let lines: string[] = body.split("\n");
-    print(format("{} lines", len(lines)));
+@derive(Eq, Hash, ToString, Debug)
+struct Point { x: Int, y: Int }
+
+macro square { ($x:expr) => { ($x) * ($x) } }
+
+fun main() {
+    let p = Point { x: 1, y: 2 }
+    print(p.to_string())          // Point { x: 1, y: 2 }
+    let n = square!(5)            // bind macro results to a local; not usable inside ${}
+    print("${n} fields=${field_names<Point>().len()}")
 }
-write_file("out.txt", "hello\nworld\n");
-append_file("out.txt", "more\n");
 ```
 
-### Pseudo-randomness without `import math` if you can't
-
-Raven's `math.random()` exists, but if you need a quick non-cryptographic random pick without an import, the fractional part of `sys_timestamp()` works:
+### C FFI
 
 ```raven
-let ts: float = sys_timestamp();
-let frac: int = parse_int(format("{}", ts).split(".")[1]);
-if (frac < 0) { frac = -frac; }
-let pick: int = frac % len(options);
-```
+import std/ffi { alloc, free, load, store }
 
-### A small program with modules and a CLI loop
-
-```raven
-// src/greet.rv
-export fun salutation(name: string) -> string {
-    return format("Hello, {}!", name);
+extern "C" {
+    fun abs(x: CInt) -> CInt
+    fun strlen(s: CStr) -> CSize
 }
 
-// src/main.rv
-import "greet";
-
-fun main() -> void {
-    let name: string = input("name: ");
-    print(salutation(name));
+fun main() {
+    print("${abs(-7)}")
+    let len = strlen(c"hello")     // c"..." is a C string literal
+    print("${len}")
+    let buf = alloc<CInt>(2)
+    store<CInt>(buf, 42)
+    print("${load<CInt>(buf)}")
+    free<CInt>(buf)
 }
-main();
 ```
-
-Run with `rvpm run` from the project root (the directory containing `rv.toml`).
 
 ## Built-in cheatsheet
 
-These are always available — no import needed. See `references/builtins.md` for full signatures.
+Always available, no import. See `references/builtins.md` for details.
 
-| Need                     | Use                                                     |
-| ------------------------ | ------------------------------------------------------- |
-| Print to stdout          | `print(template, args...)` — `{}` placeholders          |
-| Build a string           | `format(template, args...)`                             |
-| Read a line              | `input(prompt)`                                         |
-| Length                   | `len(arr)` or `len(string)`                             |
-| Type as string           | `type(value)`                                           |
-| Parse integer            | `parse_int(s)` (returns 0 on failure, no exception)     |
-| ASCII code               | `char_code("A")` → 65                                   |
-| Crash with a message     | `panic("...")`                                          |
-| Files                    | `read_file`, `write_file`, `append_file`, `file_exists` |
-| Dirs                     | `list_directory`, `is_dir`, `create_directory`          |
-| Time / date / timestamp  | `sys_time()`, `sys_date()`, `sys_timestamp()`           |
-| HTTP                     | `http_fetch(method, url, headers, body)` → response     |
-| TCP                      | `tcp_listen`, `tcp_accept`, `tcp_read`, `tcp_write`     |
-| Enum from string         | `enum_from_string("Type", "Variant")`                   |
+| Need                        | Use                                                  |
+| --------------------------- | ---------------------------------------------------- |
+| Print a line                | `print("...")` (interpolate with `${expr}`)          |
+| Print via stdlib            | `println(...)` after `import std/io { println }`     |
+| List length / element       | `xs.len()`, `xs[i]`, `xs.push(v)`                    |
+| Iterator from a list        | `xs.iter()` then `.map`/`.filter`, consumed by `std/iter` |
+| Option / Result values      | `Some(x)`, `None`, `Ok(x)`, `Err(e)`                 |
+| Goroutine                   | `spawn(fun() -> Unit { ... })`                       |
+| Compile-time reflection     | `type_name<T>()`, `field_names<T>()`                 |
+| Raw memory byte             | `__str_byte_at(s, i)` (low-level; prefer `std/string`) |
 
 ## Stdlib at a glance
 
-These live in `lib/*.rv` and are imported with `import math;` etc. See `references/stdlib.md` for full per-function signatures.
+Bundled into the compiler; import with `import std/<module> { names }`. See `references/stdlib.md`.
 
-| Module        | What's there                                                           |
-| ------------- | ---------------------------------------------------------------------- |
-| `math`        | `PI`, `E`, `TAU`; `sqrt`, `pow`, `sin`, `cos`, `random`, `random_int`, `clamp`, `lerp`, … |
-| `str`         | `to_upper`, `trim`, `contains`, `starts_with`, `pad_left`, `repeat`, … |
-| `collections` | `Map`, `Set`, `Stack`, `Queue` with constructors and methods           |
-| `filesystem`  | path helpers (`join_path`, `dirname`, `basename`, `extension`), recursive listing, line-based file I/O |
-| `json`        | `validate`, `parse`, `get_value`, `minify`, `pretty`                   |
-| `time`        | time/date helpers beyond the built-ins                                 |
-| `web`/`network` | HTTP and TCP convenience wrappers                                    |
-| `testing`     | assertion helpers for tests                                            |
+| Module            | What's there                                                            |
+| ----------------- | ----------------------------------------------------------------------- |
+| `std/io`          | `print`, `println`                                                      |
+| `std/string`      | merges `String` methods: `to_upper`, `to_lower`, `trim`, `split`, `concat`, `contains`, `replace`, `substring`, `length`, … |
+| `std/collections` | `Map<K, V>`, `Set<T>` with constructors and methods                     |
+| `std/iter`        | `collect`, `fold`, `count` over `.iter().map(...).filter(...)` pipelines |
+| `std/math`        | `sqrt`, `pow`, `pow_int`, `abs`, `min`, `max`, `pi`, `e`, trig, …       |
+| `std/fs`          | `read`, `write`, `append`, `exists`, `remove_file`, `list_dir`, `split_lines` (all return `Result` where fallible) |
+| `std/time`        | `now`, `now_millis`, `format_timestamp`, `parse_timestamp`              |
+| `std/json`        | `JsonValue` enum, `parse`, `stringify`                                  |
+| `std/sync`        | `channel`, `channel_buffered`, `send`, `recv`, `yield_now`              |
+| `std/ffi`         | `alloc`, `free`, `load`, `store`, `offset`, `is_null`, `null_ptr`       |
+| `std/random`      | `Rng` (`new`, `from_entropy`, `next_int`, `gen_range`)                  |
 
-If a function you want isn't here, **read the actual `.rv` file** under `lib/` — the source is short and the truth.
+If a name isn't here, read `stdlib/std/<module>.rv` in the Raven repo. Note: a dependency package can also import std free functions (fixed in 2.0.2).
 
 ## Running and project layout
 
 ```
 my_project/
-├── rv.toml          # [package] / [dependencies] / optional [fmt]
+├── rv.toml          # [package] / [dependencies] / optional [ffi], [fmt]
 └── src/
-    └── main.rv      # entry point — must call main() at the bottom
+    └── main.rv      # entry point — defines fun main(), not called manually
 ```
 
 ```bash
-rvpm init my_project   # scaffold
-rvpm run               # finds nearest rv.toml and runs src/main.rv
-rvpm fmt               # format src/ in place
-rvpm fmt --check       # CI: exit non-zero if anything would change
+rvpm init my_project        # scaffold
+rvpm run                    # build src/main.rv and run it
+rvpm build                  # compile to target/raven-out/<name>
+rvpm fmt                    # format src/ (pass paths for a library: rvpm fmt lib.rv)
+rvpm fmt --check            # CI: non-zero if anything would change
+rvpm add github.com/user/repo@v1.0.0   # add a GitHub-direct dependency
 
-raven file.rv          # run directly
-raven file.rv -c       # type-check only (super useful before running)
+raven build file.rv -o out  # compile a single file to a native binary
+./out                       # run it
 ```
 
-`rvpm install` and `rvpm add` are declared but **not yet implemented** — don't suggest them as a working solution.
+There is no `raven file.rv` direct-run, no `-c` type-check flag, and no REPL in v2; compiling is the check. A C linker must be on PATH (`link.exe` on Windows, `cc`/`clang` on Unix) so the compiler can link the runtime into your program.
 
-The `raven` binary must be on PATH for `rvpm run` to delegate. On developer machines that's usually `target/release/raven` from the compiler repo.
+## Recommended workflow
 
-## Recommended workflow when writing Raven
-
-1. Decide module layout (`src/main.rv` plus helpers).
-2. Sketch types first: structs, enums.
-3. Implement helpers as small `export`ed functions.
-4. Write `fun main()` and call it on the last line of `main.rv`.
-5. Run `raven src/main.rv -c` (or `rvpm run` if you want execution). Type-check first — it's fast and catches the bulk of mistakes.
-6. If you hit a parse error, the most likely cause is one of the pitfalls in the list at the top: `elseif`, comment-before-else, missing type annotation, missing `;`.
-7. Run `rvpm fmt` before committing.
+1. Sketch types first: structs, enums, traits.
+2. Write small free functions; group methods in `impl` blocks.
+3. Write `fun main()` (do not call it).
+4. `raven build src/main.rv -o app` (or `rvpm run`). Compile early and often; the type checker catches the bulk of mistakes.
+5. If a parse error appears, the usual cause is a pitfall above: a stray `;`, lowercase type name, `const`, `.len()` on a `String`, or an unqualified enum constructor.
+6. `rvpm fmt` before committing.
 
 ## Style
 
-- 4-space indent.
-- Order in a file: imports → types (struct/enum/impl) → free functions → top-level invocation.
-- One blank line between top-level declarations.
-- Name functions in `snake_case`, types in `PascalCase`, constants and variables in `snake_case`.
-- Prefer `export fun` for anything another module needs; keep helpers private (no `export`).
-- Use `format("{}", x)` over string `+` concatenation when mixing types.
-- Keep `if`/`elseif`/`else` chains tight: no blank lines or comments between branches.
+- 4-space indent, no semicolons.
+- Order: imports → traits → structs/enums → impls → free functions → `fun main`.
+- `snake_case` for functions and variables, `PascalCase` for types and enum variants.
+- Prefer single-expression bodies (`fun f() -> T = expr`) for one-liners.
+- Use string interpolation (`"${x}"`) instead of manual concatenation.
+- Keep `match` arms exhaustive; add a `_ -> ...` arm only when a catch-all is truly intended.

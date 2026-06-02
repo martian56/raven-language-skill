@@ -1,267 +1,187 @@
-# Raven standard library
+# Raven standard library (v2)
 
-The stdlib lives in `lib/*.rv` in the Raven repository. Each file is itself written in Raven, so when in doubt, read the source — it's short and authoritative.
+The stdlib is bundled into the compiler (it is no longer shipped as separate files), and each module is written in Raven. The source is `stdlib/std/*.rv` in the Raven repo, and reading it is the authoritative answer for any signature.
 
-Three import forms work for any of these:
+Import a module and select the names you need:
 
 ```raven
-import math;                              // namespace — call as math.sqrt(...)
-import str from "str";                    // alias — call as str.trim(...)
-import { trim, contains } from "str";     // selective — call directly
+import std/io { println }
+import std/collections { Map, Set }
+import std/string                      // method-only module: merges String methods
 ```
+
+Free functions must be selected by name to be callable unqualified. There is no `module.function()` call form.
+
+Available modules: `io`, `string`, `collections`, `iter`, `math`, `cmp`, `hash`, `fmt`, `encoding`, `random`, `env`, `fs`, `time`, `net`, `http`, `json`, `regex`, `process`, `ffi`, `error`, `path`, `test`, `sync`, plus the always-in-scope `core` prelude.
 
 ---
 
-## math
+## std/io
 
 ```raven
-import math;
+import std/io { print, println }
 ```
 
-### Constants
+`print(s)` writes without a trailing newline; `println(s)` adds one. The global `print` (no import) writes a line.
 
-| Name      | Value                  |
-| --------- | ---------------------- |
-| `math.PI` | `3.141592653589793`    |
-| `math.E`  | `2.718281828459045`    |
-| `math.TAU`| `6.283185307179586`    |
-
-### Functions
-
-| Function | Signature | Notes |
-| --- | --- | --- |
-| `math.abs(x)` | `(float) -> float` | Absolute value |
-| `math.min(a, b)` | `(float, float) -> float` |  |
-| `math.max(a, b)` | `(float, float) -> float` |  |
-| `math.floor(x)` | `(float) -> float` | Toward `-infinity` |
-| `math.ceil(x)` | `(float) -> float` | Toward `+infinity` |
-| `math.round(x)` | `(float) -> float` | Half-up |
-| `math.pow(b, e)` | `(float, float) -> float` | Handles negative exponent via `1/result` |
-| `math.sqrt(x)` | `(float) -> float` | Newton's method, ~10 iterations |
-| `math.sin(x)` | `(float) -> float` | Radians, Taylor series |
-| `math.cos(x)` | `(float) -> float` | Radians |
-| `math.tan(x)` | `(float) -> float` | Radians |
-| `math.log(x)` | `(float) -> float` | Natural log |
-| `math.log10(x)` | `(float) -> float` |  |
-| `math.random()` | `() -> float` | `[0.0, 1.0)` |
-| `math.random_int(min, max)` | `(int, int) -> int` | Inclusive on both ends |
-| `math.clamp(v, lo, hi)` | `(float, float, float) -> float` |  |
-| `math.lerp(a, b, t)` | `(float, float, float) -> float` | Linear interpolate |
-| `math.distance(x1, y1, x2, y2)` | `(float, float, float, float) -> float` | 2D Euclidean |
-| `math.degrees_to_radians(d)` | `(float) -> float` |  |
-| `math.radians_to_degrees(r)` | `(float) -> float` |  |
-
----
-
-## str
+## std/string
 
 ```raven
-import str from "str";
+import std/string
 ```
 
-These are *function-style* on top of the built-in string methods (which already cover the common cases). Use the built-in methods (`s.to_upper()`, `s.contains(x)`, …) when they suffice, and reach for `str` when you need things the methods don't cover (padding, repeat, reverse, casing helpers, comparison).
+Method-only module: importing it merges methods onto `String` (`length`, `to_upper`, `to_lower`, `trim`, `substring`, `concat`, `repeat`, `index_of`, `contains`, `starts_with`, `replace`, `char_at`, …). See `references/builtins.md` for the table. Use `.length()`, not `.len()`.
 
-| Function | Returns | Notes |
-| --- | --- | --- |
-| `str.to_upper(s)` | `string` |  |
-| `str.to_lower(s)` | `string` |  |
-| `str.trim(s)` | `string` |  |
-| `str.trim_left(s)` | `string` |  |
-| `str.trim_right(s)` | `string` |  |
-| `str.contains(s, sub)` | `bool` |  |
-| `str.starts_with(s, p)` | `bool` |  |
-| `str.ends_with(s, p)` | `bool` |  |
-| `str.index_of(s, sub)` | `int` | -1 if missing |
-| `str.last_index_of(s, sub)` | `int` | -1 if missing |
-| `str.pad_left(s, width, pad)` | `string` | Pads with `pad` on the left |
-| `str.pad_right(s, width, pad)` | `string` |  |
-| `str.pad_center(s, width, pad)` | `string` |  |
-| `str.repeat(s, n)` | `string` |  |
-| `str.reverse(s)` | `string` |  |
-| `str.capitalize(s)` | `string` | First letter upper, rest lower |
-| `str.title_case(s)` | `string` | "hello world" → "Hello World" |
-| `str.is_empty(s)` | `bool` |  |
-| `str.is_blank(s)` | `bool` | Empty or whitespace |
-| `str.is_numeric(s)` | `bool` | Digits and at most one `.` |
-| `str.is_alpha(s)` | `bool` |  |
-| `str.is_alphanumeric(s)` | `bool` |  |
-| `str.compare(a, b)` | `int` | `-1`/`0`/`1` |
-| `str.compare_ignore_case(a, b)` | `int` |  |
-
----
-
-## collections
+## std/collections
 
 ```raven
-import collections;
+import std/collections { Map, Set }
 ```
 
-Provides four data structures, each as a struct with methods.
-
-### Map (string → string)
+### Map<K, V>  (K: Eq + Hash)
 
 ```raven
-let m: Map = collections.new_map();
-m = m.set("name", "Alice");
-m = m.set("role", "engineer");
-let n: string = m.get("name");        // "Alice"
-let has: bool = m.has("role");        // true
-m = m.remove("role");
-let size: int = m.len();              // 1
-let ks: string[] = m.keys();
-let vs: string[] = m.values();
+let m: Map<String, Int> = Map.new()      // or a literal: ["a": 1, "b": 2]
+m.set("a", 1)
+match m.get("a") { Some(v) -> ..., None -> ... }   // get returns Option<V>
+let present = m.has("a")                  // Bool
+let n = m.len()
+let ks = m.keys()                         // List<K>
+let vs = m.values()                       // List<V>
+m.remove("a")                             // Bool
 ```
 
-The setters return a new `Map` — assign back. There are also bare functions (`collections.map_set`, etc.) but the method form is idiomatic.
-
-### Set (string)
+### Set<T>  (T: Eq + Hash)
 
 ```raven
-let s: Set = collections.new_set();
-s = s.add("apple");
-s = s.add("apple");        // no-op
-let has: bool = s.contains("apple");
-let n: int = s.len();
-let u: Set = s.union(other);
-let i: Set = s.intersection(other);
+let s: Set<Int> = Set.new()              // or a literal: {1, 2, 3}
+s.add(1)
+let has = s.contains(1)                  // Bool
+let n = s.len()
+s.remove(1)                              // Bool
 ```
 
-### Stack and Queue
+Mutators act in place (unlike v1, you do not reassign the result).
+
+## std/iter
 
 ```raven
-let st: Stack = collections.new_stack();
-st = st.push("a");
-let top: string = st.peek();
-let popped: string = st.pop();
-let empty: bool = st.is_empty();
-
-let q: Queue = collections.new_queue();
-q = q.enqueue("first");
-let front: string = q.peek();
-let next: string = q.dequeue();
+import std/iter { collect, fold, count }
 ```
 
-All collections are immutable-style: methods return updated copies. Always reassign.
+Lazy adapters over `xs.iter()`: `.map(f)`, `.filter(pred)`, `.take(n)`, `.skip(n)`, `.enumerate()`. Drive them with a consumer:
 
----
-
-## filesystem
+| Consumer                       | Returns      |
+| ------------------------------ | ------------ |
+| `collect(it)`                  | `List<T>`    |
+| `fold(it, init, f)`            | accumulator  |
+| `count(it)`                    | `Int`        |
 
 ```raven
-import filesystem;
+let kept: List<Int> = collect(xs.iter().map(fun(x: Int) -> Int = x * 10).filter(fun(y: Int) -> Bool = y > 20))
+let total = fold(xs.iter(), 0, fun(a: Int, v: Int) -> Int = a + v)
 ```
 
-Wraps the built-in file functions with friendlier helpers.
-
-### Path manipulation
-
-| Function | Returns |
-| --- | --- |
-| `filesystem.join_path(parts: string[])` | `string` |
-| `filesystem.split_path(path)` | `string[]` |
-| `filesystem.dirname(path)` | `string` |
-| `filesystem.basename(path)` | `string` |
-| `filesystem.extension(path)` | `string` (without the dot) |
-
-### Listing and finding
-
-| Function | Returns |
-| --- | --- |
-| `filesystem.list_files(dir)` | `string[]` (files only) |
-| `filesystem.list_directories(dir)` | `string[]` (subdirs only) |
-| `filesystem.list_directory(dir)` | `string[]` (both) |
-| `filesystem.find_files(dir, pattern)` | `string[]` (recursive substring match) |
-| `filesystem.find_files_by_extension(dir, ext)` | `string[]` |
-
-### File I/O
-
-| Function | Returns |
-| --- | --- |
-| `filesystem.read_lines(path)` | `string[]` |
-| `filesystem.write_lines(path, lines: string[])` | `void` |
-| `filesystem.append_line(path, line: string)` | `void` |
-| `filesystem.copy_file(src, dst)` | `bool` |
-| `filesystem.move_file(src, dst)` | `bool` |
-| `filesystem.get_file_info(path)` | `FileInfo` struct |
-| `filesystem.files_are_equal(a, b)` | `bool` |
-
-### Validation
-
-| Function | Returns |
-| --- | --- |
-| `filesystem.is_valid_filename(name)` | `bool` |
-| `filesystem.sanitize_filename(name)` | `string` (replaces invalid chars with `_`) |
-
----
-
-## json
+## std/math
 
 ```raven
-import "json";    // note: quoted form
+import std/math { sqrt, pow, pow_int, abs, abs_int, min, max, min_int, max_int, clamp, clamp_int, pi, e, tau, ln, sin, cos }
 ```
 
-Raven's JSON support is limited. Validation, basic parse/access, and pretty-printing.
+`Float` functions: `sqrt`, `pow`, `abs`, `min`, `max`, `clamp`, `ln`, `sin`, `cos`, and constants via `pi()`, `e()`, `tau()` (functions, not constants). `Int` helpers: `abs_int`, `min_int`, `max_int`, `clamp_int`, `pow_int`.
 
-| Function | Returns | Notes |
-| --- | --- | --- |
-| `json.validate(raw: string)` | `string` | `"ok"` on success, error message otherwise |
-| `json.parse(raw: string)` | `string[]` | Path-indexed entries |
-| `json.get_value(entries: string[], path: string)` | `string` | E.g. `"$[name]"` |
-| `json.minify(raw: string)` | `string` | Strips whitespace |
-| `json.pretty(raw: string, indent: int)` | `string` | Pretty-prints |
+## std/fs
 
 ```raven
-let raw: string = "{\"name\":\"Alice\",\"age\":30}";
-if (json.validate(raw) == "ok") {
-    let pretty: string = json.pretty(raw, 2);
-    print(pretty);
+import std/fs { read, write, append, exists, remove_file, create_dir, remove_dir, list_dir, size, is_file, is_dir, split_lines }
+```
+
+| Function                      | Returns                      |
+| ----------------------------- | ---------------------------- |
+| `read(path)`                  | `Result<String, Error>`      |
+| `write(path, contents)`       | `Result<Bool, Error>`        |
+| `append(path, contents)`      | `Result<Bool, Error>`        |
+| `remove_file(path)`           | `Result<Bool, Error>`        |
+| `create_dir(path)`            | `Result<Bool, Error>`        |
+| `list_dir(path)`              | `Result<List<String>, Error>`|
+| `size(path)`                  | `Result<Int, Error>`         |
+| `exists(path)`                | `Bool`                       |
+| `is_file(path)` / `is_dir(path)` | `Bool`                    |
+| `split_lines(s)`              | `List<String>`               |
+
+```raven
+match read("data.txt") {
+    Ok(body) -> print("${split_lines(body).len()} lines"),
+    Err(e) -> print("read failed"),
 }
 ```
 
-For complex JSON work, parse into your own structs by hand or read the file as text and `split` — Raven's JSON layer is intentionally thin.
+`std/path` provides `join`, `basename`, `dirname`, `extension`, `stem`, `is_absolute`.
 
----
-
-## time
+## std/time
 
 ```raven
-import time;
+import std/time { now, now_millis, from_timestamp, format_timestamp, parse_timestamp, weekday, sleep_millis }
 ```
 
-Convenience helpers on top of `sys_time()`, `sys_date()`, `sys_timestamp()`. The exact API evolves; read `lib/time.rv` for the current list.
+`now()` is Unix seconds, `now_millis()` is Unix milliseconds (both `Int`). `from_timestamp(ts)` builds a `DateTime`; `format_timestamp(ts, pattern)` and `parse_timestamp(text, pattern) -> Result<Int, Error>` convert.
 
----
-
-## web / network
+## std/json
 
 ```raven
-import web;
-import network;
+import std/json { JsonValue, parse, stringify }
 ```
-
-Convenience wrappers around `http_fetch`, `tcp_*`, `dns_lookup`. Read the lib files; the API is small.
-
----
-
-## testing
 
 ```raven
-import "testing";
+enum JsonValue {
+    Null,
+    Bool(Bool),
+    Number(Float),
+    Str(String),
+    Array(List<JsonValue>),
+    Object(Map<String, JsonValue>),
+}
 ```
 
-Assertion helpers for writing tests. Inspect `lib/testing.rv` for the current set (typically `assert_equals`, `assert_true`, etc., plus a runner).
+`parse(text) -> Result<JsonValue, Error>`, `stringify(value) -> String`. Build values with the qualified constructors: `JsonValue.Str("x")`, `JsonValue.Number(2.0)`, `JsonValue.Object(map)`. `@derive(ToJson, FromJson)` on your own types gives `to_json()` / `Type.from_json(v)`.
 
-A test file can be invoked directly with `raven path/to/test.rv`.
+## std/sync
+
+```raven
+import std/sync { channel, channel_buffered, yield_now }
+```
+
+`channel()` is unbuffered, `channel_buffered(cap)` holds up to `cap`. Methods `ch.send(Int)` and `ch.recv() -> Int` block (yielding to the scheduler) when full/empty. `yield_now()` hands control to another goroutine. Channels carry `Int` in this release.
+
+## std/random
+
+```raven
+import std/random { Rng }
+```
+
+`Rng.new(seed)` is deterministic; `Rng.from_entropy()` seeds from a runtime source (distinct on every call as of 2.0.1). Methods: `next_int()` (full i64), `gen_range(lo, hi)` (half-open), `next_float()` (`[0,1)`), `next_bool()`, `choice(list) -> Option<T>`, `shuffle(list)`. Hold one `Rng` and draw many values from it.
+
+## std/ffi
+
+```raven
+import std/ffi { alloc, free, load, store, offset, is_null, null_ptr }
+```
+
+Raw memory for the C FFI: `alloc<T>(n)`, `free<T>(p)`, `store<T>(p, v)`, `load<T>(p) -> T`, `offset<T>(p, i)`, `is_null<T>(p)`, `null_ptr<T>()`. C types (`CInt`, `CStr`, `CPtr<T>`, `CFnPtr`, …) are built in; declare foreign functions in an `extern "C"` block.
+
+## std/net, std/http, std/process, std/env, std/regex, std/encoding, std/test
+
+Convenience modules over sockets, HTTP, subprocesses, environment variables, regular expressions, byte/string encoding, and test assertions. The APIs are small; read `stdlib/std/<module>.rv` for the current set (for example `import std/http`, `import std/net { connect }`, `import std/env { get_env }`, `import std/regex { compile }`, `import std/test { assert, assert_eq_int }`).
 
 ---
 
 ## When you don't see it here
 
-The stdlib evolves. To check what's actually available right now:
+Read the source in the Raven repo:
 
 ```bash
-ls lib/                # see all modules
-cat lib/<module>.rv    # read its exports
+ls stdlib/std/            # all modules
+cat stdlib/std/<module>.rv  # exact functions, structs, and methods
 ```
 
-Every `export fun` and `export let` in those files is callable from your code.
+Every top-level `fun`, `struct`, `enum`, and `trait` in those files is importable.

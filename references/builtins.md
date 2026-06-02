@@ -1,173 +1,100 @@
-# Raven built-in functions
+# Raven built-ins and core methods (v2)
 
-These functions are always in scope without an `import`. They are implemented in Rust inside the interpreter (see `src/code_gen.rs`). All signatures use Raven's notation: `name(param: type, ...) -> return_type`.
+What is available without an `import`, plus the methods on the core collection and string types. Anything beyond this lives in a stdlib module (see `references/stdlib.md`).
 
-## I/O
+## Always-available functions
 
-### `print(template: string, args...) -> void`
-Prints `template` to stdout followed by a newline. `{}` placeholders are replaced left-to-right by `args`. With a single argument and no `{}`, prints the value as a string.
+### `print(value)`
+Writes to stdout followed by a newline. The argument is usually an interpolated string. There are no format specifiers; interpolate values with `${expr}`.
 
 ```raven
-print("hello");
-print("x = {}, y = {}", 1, 2);   // "x = 1, y = 2"
-print(format("answer: {}", 42)); // single string arg
+print("hello")
+print("x = ${x}, y = ${y}")
 ```
 
-There are no `{:d}`/`{:.2f}` style specifiers. All values stringify with their default representation.
+For a print without the trailing newline, or to print explicitly via the stdlib, use `import std/io { print, println }`.
 
-### `format(template: string, args...) -> string`
-Same substitution as `print` but returns the resulting string. The most ergonomic way to coerce an int/float/bool/struct into a string.
+> There is no global `panic`, `format`, `input`, `len(x)`, or `read_file` in v2. Use `${...}` interpolation instead of `format`, the `.len()` method on collections, and the `std/fs`/`std/io` modules for I/O.
+
+## Prelude values (no import)
+
+`Some(x)`, `None`, `Ok(x)`, `Err(e)` construct `Option<T>` and `Result<T, E>`. The `?` operator unwraps `Ok`/`Some` and early-returns `Err`/`None`.
+
+## Concurrency
+
+### `spawn(closure)`
+Starts a goroutine on the cooperative scheduler. The closure has type `fun() -> Unit`.
 
 ```raven
-let s: string = format("{} + {} = {}", 1, 2, 3);
+spawn(fun() -> Unit { ch.send(1) })
 ```
 
-### `input(prompt: string) -> string` (or `input() -> string`)
-Prints the prompt (no newline), reads a line, returns it without the trailing newline.
+Channels come from `std/sync`.
 
-## Lengths and types
+## Compile-time reflection (no import)
 
-### `len(value) -> int`
-Length of an array (number of elements) or a string (number of characters).
+### `type_name<T>() -> String`
+The name of the type argument, resolved at compile time (per monomorphization for a generic `T`).
 
-### `type(value) -> string`
-Type name as a string. Useful for debugging. Returns `"int"`, `"string"`, struct or enum name, `"array"`, `"void"`, etc.
-
-## Conversions
-
-### `parse_int(s: string) -> int`
-Parses `s` as a 64-bit integer. **Returns 0** on failure — no exception, no `Option`. If you need to distinguish "the string was 0" from "parse failed", check the input first.
-
-### `char_code(s: string) -> int`
-ASCII code of the first character in `s`. `char_code("A")` is 65. Empty string returns 0.
-
-There is no inverse `int_to_char` built-in. To produce a single character, use a lookup table or `format("{}", n)` for the digit form.
-
-## Files
-
-### `read_file(path: string) -> string`
-Returns the entire file as a string. If the file doesn't exist, the call errors out (fatal — no exception handling exists in Raven). Always guard with `file_exists` first.
-
-### `write_file(path: string, content: string) -> void`
-Writes `content` to `path`, overwriting if it already exists. Backslash-`n` sequences in `content` (`"line1\\nline2"`) are converted to actual newlines.
-
-### `append_file(path: string, content: string) -> void`
-Appends to (or creates) `path`. Same escape handling as `write_file`.
-
-### `file_exists(path: string) -> bool`
-True if a file or directory exists at `path`.
-
-### `is_dir(path: string) -> bool`
-True if `path` is a directory.
-
-### `list_directory(path: string) -> string[]`
-Names of entries in the directory. Empty array if the directory is empty or doesn't exist.
-
-### `create_directory(path: string) -> bool`
-Creates the directory and any missing parents. Returns true on success, false on error.
-
-### `remove_file(path: string) -> bool`
-Deletes a file. Returns false if it doesn't exist.
-
-### `remove_directory(path: string) -> bool`
-Recursively deletes a directory (everything inside). Use carefully.
-
-### `get_file_size(path: string) -> int`
-File size in bytes. Returns 0 if the file is missing.
-
-## Time
-
-### `sys_time() -> string`
-Current local time as `"HH:MM:SS"`.
-
-### `sys_date() -> string`
-Current local date as `"YYYY-MM-DD"`.
-
-### `sys_timestamp() -> float`
-Unix timestamp in seconds, with sub-second precision. Useful as a cheap source of entropy: take the fractional part as a pseudo-random integer.
-
-## Networking
-
-### `http_fetch(method: string, url: string, headers: string[], body: string) -> HttpResponse`
-Synchronously perform an HTTP request. `method` is `"GET"`, `"POST"`, etc. `headers` is an array of `"Header-Name: value"` strings. `body` is the request body (use `""` for GET).
-
-The response struct:
+### `field_names<T>() -> List<String>`
+A struct type's field names, in declaration order.
 
 ```raven
-struct HttpResponse {
-    status_code: int,
-    status_text: string,
-    headers: string[],
-    body: string,
+fun introspect<T>() {
+    print("type ${type_name<T>()}")
+    for f in field_names<T>() {
+        print("  field ${f}")
+    }
 }
 ```
 
-### `tcp_listen(addr: string, backlog: int) -> TcpListener`
-Bind a TCP listener. `addr` is `"host:port"`, e.g. `"127.0.0.1:8080"`. `backlog` is the connection queue depth.
+Runtime reflection (`to_any`, `type_name_of`, `field_names_of`, `get_field`, `cast<T>`) is also available; see the reflection module/source for exact signatures.
 
-### `tcp_accept(listener: TcpListener) -> TcpStream`
-Block until a connection arrives.
+## `List<T>` methods (built-in, no import)
 
-### `tcp_read(stream: TcpStream, max_bytes: int) -> string`
-Read up to `max_bytes` from the stream.
+| Form                | Result        | Notes                                             |
+| ------------------- | ------------- | ------------------------------------------------- |
+| `xs[i]`             | `T`           | Direct element access; the common accessor        |
+| `xs[i] = v`         | mutate        | In-place element assignment                        |
+| `xs.len()`          | `Int`         | Element count                                      |
+| `xs.push(v)`        | mutate        | Append; mutates the list in place                  |
+| `xs.get(i)`         | `Option<T>`   | Bounds-checked; a `match` on it may need a `_` arm |
+| `xs.iter()`         | iterator      | Bridge into `std/iter` (`.map`, `.filter`, …)      |
 
-### `tcp_write(stream: TcpStream, data: string) -> void`
-Write `data` to the stream.
+List literals: `[1, 2, 3]`; an empty list needs a type annotation (`let xs: List<Int> = []`).
 
-### `tcp_close_stream(stream: TcpStream) -> void`
-Close one client connection.
+`Map<K, V>` and `Set<T>` are not built-in; import them from `std/collections`.
 
-### `tcp_close_listener(listener: TcpListener) -> void`
-Stop accepting new connections.
+## `String` methods (require `import std/string`)
 
-### `dns_lookup(host: string) -> string`
-Resolve a hostname to an IP string.
+Importing `std/string` merges these methods onto every `String`. The length method is `.length()` (the `.len()` you would expect type-checks but fails in codegen, so always use `.length()` on strings).
 
-### `reachable(host: string) -> bool`
-Quick reachability ping.
+| Method                                 | Returns    | Notes                              |
+| -------------------------------------- | ---------- | ---------------------------------- |
+| `s.length()`                           | `Int`      | Byte length                        |
+| `s.substring(start, end)`              | `String`   | Half-open `[start, end)`           |
+| `s.concat(other)`                      | `String`   | Concatenation                      |
+| `s.to_upper()` / `s.to_lower()`        | `String`   |                                    |
+| `s.trim()`                             | `String`   | Strip leading/trailing whitespace  |
+| `s.repeat(n)`                          | `String`   |                                    |
+| `s.index_of(needle)`                   | `Int`      | `-1` if absent                     |
+| `s.contains(needle)`                   | `Bool`     |                                    |
+| `s.starts_with(prefix)`                | `Bool`     |                                    |
+| `s.replace(from, to)`                  | `String`   | Replace all occurrences            |
+| `s.char_at(i)`                         | `String`   | One-character string at byte `i`   |
 
-## Enums
+Strings are immutable: every method returns a new string. Compare with `==` (there are no `<`/`>` ordering operators on `String`, and `match` on string-literal patterns is currently broken; use `==`/`if` chains).
 
-### `enum_from_string(enum_name: string, variant_name: string) -> Enum`
-Construct an enum value from two strings. Errors at runtime if the enum or variant doesn't exist.
+### Low-level string intrinsics (no import)
 
-```raven
-enum Status { OK, Error }
-let s: Status = enum_from_string("Status", "OK");
-```
+Used by the stdlib; occasionally handy for byte-level work.
 
-## Errors
+| Intrinsic                    | Returns  | Notes                              |
+| ---------------------------- | -------- | ---------------------------------- |
+| `__str_len(s)`               | `Int`    | Byte length (what `.length()` calls) |
+| `__str_byte_at(s, i)`        | `Int`    | ASCII byte at index `i`            |
+| `__str_concat(a, b)`         | `String` |                                    |
+| `__str_substring(s, a, b)`   | `String` |                                    |
+| `__str_from_byte(b)`         | `String` | One-character string from a byte   |
 
-### `panic(message: string, args...) -> never`
-Concatenate the arguments into an error message and abort the program. There is no `try`/`catch` in Raven — `panic` ends execution immediately.
-
-## String methods (built into the language)
-
-These behave like methods on string values. They're not user-defined functions but the parser/interpreter knows them.
-
-| Method                              | Returns       | Notes                                            |
-| ----------------------------------- | ------------- | ------------------------------------------------ |
-| `s.slice(start: int, end: int)`     | `string`      | Substring `[start, end)`                         |
-| `s.split(sep: string)`              | `string[]`    | Split on every occurrence of `sep`               |
-| `s.replace(from: string, to: string)` | `string`    | Replace all occurrences                          |
-| `s.index_of(sub: string)`           | `int`         | -1 if not found                                  |
-| `s.last_index_of(sub: string)`      | `int`         | -1 if not found                                  |
-| `s.contains(sub: string)`           | `bool`        |                                                  |
-| `s.starts_with(p: string)`          | `bool`        |                                                  |
-| `s.ends_with(p: string)`            | `bool`        |                                                  |
-| `s.to_upper()`                      | `string`      |                                                  |
-| `s.to_lower()`                      | `string`      |                                                  |
-| `s.trim()`                          | `string`      | Strips leading and trailing whitespace           |
-
-Strings are immutable — every method returns a new string. Indexing a string with `s[i]` returns a single-character string.
-
-## Array methods (built-in)
-
-| Method                                | Returns        | Notes                                             |
-| ------------------------------------- | -------------- | ------------------------------------------------- |
-| `arr.push(value)`                     | array          | Mutates `arr` when called on a local variable     |
-| `arr.pop()`                           | element type   | Removes and returns the last element; errors if empty |
-| `arr.slice(start: int, end: int)`     | array          | Sub-array `[start, end)`                          |
-| `arr.join(sep: string)`               | `string`       | Only meaningful for `string[]`                    |
-
-Mutation caveat: pushing to an array **received as a function parameter** does not always propagate back to the caller. The reliable pattern is to build the array locally and `return` it. See SKILL.md "Array mutation pitfall".
+Prefer the `std/string` methods; reach for the intrinsics only when parsing bytes.
