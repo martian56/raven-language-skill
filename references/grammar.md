@@ -17,7 +17,7 @@ break continue defer spawn import as extern macro
 true false
 ```
 
-Type names (`Int`, `Float`, `Bool`, `String`, `Char`, `Unit`, `List`, `Map`, `Set`, `Option`, `Result`, the `C*` FFI types) are PascalCase identifiers, not keywords. `const` is reserved but unusable in practice: it does not parse inside a function body, and a top-level `const`/`let` binding mis-types as `Unit`.
+Type names (`Int`, `Float`, `Bool`, `String`, `Char`, `Unit`, `List`, `Map`, `Set`, `Option`, `Result`, the `C*` FFI types) are PascalCase identifiers, not keywords. `const` declares an immutable compile-time constant and parses both inside a function body (`const X = 5`) and at module level (`const MAX: Int = 100`).
 
 ### Identifiers
 
@@ -39,11 +39,11 @@ Type names (`Int`, `Float`, `Bool`, `String`, `Char`, `Unit`, `List`, `Map`, `Se
 
 ### String interpolation
 
-`"${expr}"` splices `expr` into the string. Limitations:
+`"${expr}"` splices `expr` into the string. The expression can be arbitrary:
 
-- The interpolated expression cannot itself contain a `"`-delimited string literal: `"${greet("x")}"` fails to parse. Bind to a local first.
-- It cannot contain a macro invocation: `"${m!(1)}"` is rejected. Bind to a local first.
-- A struct value cannot be interpolated unless converted: use `${v.to_string()}` (with `@derive(ToString)`).
+- A nested `"`-delimited string literal is fine: `"${greet("x")}"`.
+- A macro invocation is fine: `"${m!(1)}"`.
+- A struct value that derives `ToString` interpolates directly: `"${v}"` (equivalent to `"${v.to_string()}"`).
 
 ### Comments
 
@@ -99,9 +99,11 @@ A program is a set of top-level items. Order does not matter for resolution (fun
 ```
 let <ident> = <expr>
 let <ident>: <type> = <expr>
+const <ident> = <expr>
+const <ident>: <type> = <expr>
 ```
 
-`let` bindings are mutable and reassignable. Empty collection literals need a type: `let xs: List<Int> = []`.
+`let` bindings are mutable and reassignable; `const` bindings are immutable. Both also work at module level (though reassigning a module-level binding from a function mis-compiles). Empty collection literals need a type: `let xs: List<Int> = []`.
 
 ### Function declaration
 
@@ -166,7 +168,7 @@ import "github.com/user/repo" { a } // selective
 import "github.com/user/repo/sub" { a }   // sub-module sub.rv
 ```
 
-Stdlib free functions must be imported by name to be called unqualified; there is no `module.function()` call form.
+Importing a free function by name (`import std/fs { write }` then `write(...)`) is the form that always works. A `module.function()` qualified call works for some runtime-backed modules (`import std/fs` then `fs.exists(...)`) but not all (`import std/math` then `math.sqrt(...)` is rejected), so prefer the selector form.
 
 ### extern (C FFI)
 
@@ -187,7 +189,7 @@ Metavariables `$x:expr`, `$x:ident`; repetition `$(...)*` and `$(...)+`. Invoke 
 ### Attributes
 
 ```
-@derive(Eq, Hash, ToString, Debug, ToJson, FromJson)
+@derive(Eq, Hash, Ord, ToString, Debug, ToJson, FromJson)
 @repr(C)
 ```
 
@@ -227,7 +229,7 @@ match <scrutinee> {
 }
 ```
 
-Exhaustive at compile time. Arms are separated by commas (and/or newlines). Matching on `String` literal patterns is currently broken (falls through to `_`); use `==` instead.
+Exhaustive at compile time. Arms are separated by commas (and/or newlines). Matching on `String` literal patterns works (`match s { "a" -> ..., _ -> ... }`).
 
 ### Closures
 
@@ -271,7 +273,7 @@ No implicit numeric coercion and no cast syntax. Build strings with interpolatio
 
 ### Equality and ordering
 
-`==`/`!=` work on matching types (and on `String` by value). Ordering `< <= > >=` works on numbers; `String` has no ordering operators in this release.
+`==`/`!=` work on matching types (and on `String` by value). Ordering `< <= > >=` works on numbers and on `String` (lexicographic). Structs and enums can derive ordering with `@derive(Ord)`, which provides `compare(self, other) -> Int`.
 
 ---
 
@@ -282,10 +284,9 @@ Reach for these freely now: generics, traits, `dyn Trait`, sum types with payloa
 ## Things that still don't work / don't exist
 
 - `null`, `nil`, `None`-as-keyword (use the `None` value of `Option`).
-- `const` (parses nowhere useful; use `let`).
-- Reliable module-level mutable state (top-level `let` mis-types as `Unit`).
-- `module.function()` qualified calls (import the name instead).
-- `String.len()` (use `.length()`), `String` ordering operators, `match` on `String` literals.
+- Module-level mutable state: a top-level `let`/`const` is readable from any function, but reassigning it from a function mis-compiles (`binop lhs used a Unit value`). Keep mutable state inside functions or a struct.
+- Universal `module.function()` qualified calls (works for some runtime-backed modules, not all; prefer selector imports).
+- `String.len()` (use `.length()`).
 - `List<dyn Trait>`.
 - Turbofish `::<T>`.
 - Exceptions / `try`/`catch` (use `Result` and `?`).

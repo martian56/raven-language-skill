@@ -83,7 +83,7 @@ Importing `std/string` merges these methods onto every `String`. The length meth
 | `s.replace(from, to)`                  | `String`   | Replace all occurrences            |
 | `s.char_at(i)`                         | `String`   | One-character string at byte `i`   |
 
-Strings are immutable: every method returns a new string. Compare with `==` (there are no `<`/`>` ordering operators on `String`, and `match` on string-literal patterns is currently broken; use `==`/`if` chains).
+Strings are immutable: every method returns a new string. Compare with `==`; `<`/`>` ordering operators work on `String` (lexicographic), and `match` on string-literal patterns works (`match s { "a" -> ..., _ -> ... }`).
 
 ### Low-level string intrinsics (no import)
 

@@ -42,15 +42,20 @@ edition = "v2"
 
 | Command                         | What it does                                                        |
 | ------------------------------- | ------------------------------------------------------------------- |
-| `rvpm init [name]`              | Scaffold `rv.toml` + `src/main.rv`.                                  |
+| `rvpm init [name]`              | Scaffold `rv.toml` + `src/main.rv` here (`--lib` for a library, `lib.rv`). |
+| `rvpm new <name>`               | Scaffold a new package in a fresh `<name>/` directory (`--lib`).     |
 | `rvpm add <pkg>[@version]`      | Add a GitHub dependency, resolve it, write `rv.lock`, fill the cache.|
 | `rvpm install`                  | Resolve `rv.toml` against `rv.lock` and populate the cache.          |
 | `rvpm update [pkg]`             | Re-resolve and rewrite `rv.lock` for one package or all.             |
-| `rvpm build`                    | Compile `src/main.rv` to `target/raven-out/<name>`.                  |
+| `rvpm build`                    | Compile `src/main.rv` to `target/raven-out/<name>`, or type-check a `lib.rv` library. |
 | `rvpm run [args]`               | Build then run, forwarding `args`.                                   |
+| `rvpm test`                     | Run `fun test_*()` tests in `*_test.rv` files.                       |
+| `rvpm doc`                      | Generate Markdown API docs into `target/doc`.                        |
 | `rvpm fmt [paths]`              | Format in place (defaults to `src/`; pass paths for a library). `--check` for CI. |
 | `rvpm fetch <pkg>`              | Fetch `github.com/<user>/<repo>@<version>` into the shared cache.    |
 | `rvpm lock`                     | Generate or validate `rv.lock`.                                      |
+| `rvpm cache <sub>`              | Inspect or clear the shared cache (`dir` / `list` / `clean`).        |
+| `rvpm version`                  | Print the rvpm version (also `--version`, `-V`).                     |
 
 Package arguments use the `github.com/<user>/<repo>` form; append `@<tag>` to pin (for example `rvpm add github.com/user/raven-uuid@v0.1.0`).
 

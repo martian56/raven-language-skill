@@ -1,9 +1,9 @@
 ---
 name: raven-language-skill
-description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (std/io, std/string, std/collections, std/math, std/iter, std/fs, std/time, std/json, std/net, std/http, std/ffi, std/sync), or running raven/rvpm commands. Raven v2 is a statically-typed compiled language (Cranelift backend, tracing GC) with generics, traits, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. It has a few syntax pitfalls (no semicolons, PascalCase types, no `const`, string-method name is `.length()` not `.len()`, enum construction is qualified) that this skill helps Claude avoid. Trigger even when the user just mentions a `.rv` file or rvpm. Do NOT trigger for the Raven compiler source itself (the `.rs` files) or unrelated languages.
+description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (std/io, std/string, std/collections, std/math, std/iter, std/fs, std/time, std/json, std/net, std/http, std/ffi, std/sync, std/cmp, std/random, std/env, std/encoding, std/hash, std/path, std/process, std/regex), or running raven/rvpm commands. Raven v2 is a statically-typed compiled language (Cranelift backend, tracing GC) with generics, traits, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. It has a few syntax pitfalls (no semicolons, PascalCase types, string-method name is `.length()` not `.len()`, enum construction is qualified) that this skill helps Claude avoid. Trigger even when the user just mentions a `.rv` file or rvpm. Do NOT trigger for the Raven compiler source itself (the `.rs` files) or unrelated languages.
 metadata:
   author: martian56
-  version: 2.0.2
+  version: 2.1.0
 ---
 
 # Raven Language (v2)
@@ -29,19 +29,19 @@ These are the mistakes that ruin first-try compilation. Burn them in.
 1. **No semicolons.** Statements end at the newline. Do not terminate lines with `;`.
 2. **Types are PascalCase.** `Int`, `Float`, `Bool`, `String`, `Char`, `Unit`. There is no `int`/`string`. `Unit` is the no-value type (the implicit return).
 3. **Type annotations are optional.** Local inference works: `let x = 5` infers `Int`. Annotate when you want to be explicit or when inference can't tell (`let xs: List<Int> = []`). Function parameters and return types are still written out.
-4. **`let` is mutable; there is no `let mut`.** Reassign freely. Compound assignment works: `+= -= *= /= %=`. `const` is effectively unusable right now (it does not parse inside a function, and a top-level `const`/`let` mis-types as `Unit`), so use `let` and declare values inside `fun main` or return them from a function.
+4. **`let` is mutable; there is no `let mut`.** Reassign freely. Compound assignment works: `+= -= *= /= %=`. `const` is for immutable compile-time constants and works both as a local (`const X = 5`) and at module level (`const MAX: Int = 100`).
 5. **Logical operators are `&&`, `||`, `!`.** The words `and`/`or`/`not` are NOT operators.
 6. **`else if` is two words** (v1's `elseif` is gone). `if` is also an expression: `let s = if x > 0 { "pos" } else { "neg" }`.
 7. **`for` is range/iterator based.** `for i in 0..10 { }` (exclusive), `for i in 1..=10 { }` (inclusive), `for item in list { }`. `while cond { }` and `loop { }` exist. `break` and `continue` work.
-8. **String interpolation is `"${expr}"`.** Two real limitations: an interpolation cannot contain a nested string literal (`"${f("x")}"` fails to parse) and cannot contain a macro call (`"${m!(1)}"`). Bind those to a local first, then interpolate the local. A struct value cannot be interpolated directly; call `.to_string()` (works when the struct derives `ToString`).
+8. **String interpolation is `"${expr}"`.** The expression can be arbitrary: a nested string literal (`"${a.concat("y")}"`), a macro call (`"${square!(5)}"`), and a struct value that derives `ToString` (`"${p}"`) all interpolate directly.
 9. **`String` length is `.length()`, not `.len()`.** `.len()` type-checks but fails in codegen. `List`/`Map`/`Set` use `.len()`. String methods (`.to_upper()`, `.trim()`, `.split()`, `.concat()`, …) require `import std/string`.
 10. **No `null`.** Absence is `Option<T>` (sugar `T?`) with `Some(x)`/`None`. Fallible results are `Result<T, E>` with `Ok(x)`/`Err(e)` and the `?` operator. `Some`, `None`, `Ok`, `Err` are in scope without imports.
 11. **Enum variants are constructed qualified:** `Shape.Circle(2.0)`, `Color.Red`. In `match`, the patterns are bare: `Circle(r) -> ...`. `match` is exhaustive.
 12. **No visibility modifiers.** Every top-level `fun`/`struct`/`enum`/`trait` is importable. There is no `export` and no `pub`.
 13. **`fun main()` is the entry point.** Define it; do NOT call `main()` yourself. There is no top-level statement execution.
-14. **Free functions must be imported by name, not module-qualified.** Write `import std/fs { write }` then `write(path, data)`. `fs.write(...)` does not work. Types (`Map`) and methods (`.to_upper`) come in through `import std/collections { Map }` / `import std/string`.
-15. **`match` on `String` literal patterns is currently broken** (it falls through to the wildcard). Compare strings with `==` / `if`-chains instead. Strings also have no `<`/`>` ordering operators.
-16. **Module-level mutable state is unreliable.** A top-level `let`/`const` binding mis-types as `Unit`. Keep state inside functions, thread it through parameters, or hold it in a struct you pass around.
+14. **Prefer selector imports for free functions.** `import std/fs { write }` then `write(path, data)` is the form that always works. Module-qualified access (`import std/fs` then `fs.exists(...)`) works for some runtime-backed modules but not all (`import std/math` then `math.sqrt(...)` fails), so reach for the selector form. Types (`Map`) and methods (`.to_upper`) come in through `import std/collections { Map }` / `import std/string`.
+15. **`match` on `String` literal patterns works.** `match s { "a" -> ..., _ -> ... }` matches as expected, and strings support `<`/`>` ordering.
+16. **Reading module-level bindings works; mutating them does not.** A top-level `let`/`const` is readable from any function (`let greeting: String = "hi"`), but reassigning a module-level binding from a function mis-compiles (`binop lhs used a Unit value`). For mutable state, keep it inside functions, thread it through parameters, or hold it in a struct you pass around.
 
 ## Anatomy of a Raven file
 
@@ -272,8 +272,21 @@ macro square { ($x:expr) => { ($x) * ($x) } }
 fun main() {
     let p = Point { x: 1, y: 2 }
     print(p.to_string())          // Point { x: 1, y: 2 }
-    let n = square!(5)            // bind macro results to a local; not usable inside ${}
-    print("${n} fields=${field_names<Point>().len()}")
+    print("${square!(5)} fields=${field_names<Point>().len()}")
+}
+```
+
+Derivable traits: `Eq`, `Hash`, `ToString`, `Debug`, and `Ord`. `@derive(Ord)` adds `compare(self, other) -> Int` (negative / zero / positive), comparing structs field-by-field in declaration order and enums by variant order then payload. Pair it with `import std/cmp { sort }` to sort a `List`:
+
+```raven
+import std/cmp { sort }
+
+@derive(Ord)
+struct Version { major: Int, minor: Int }
+
+fun main() {
+    let vs = sort([Version { major: 1, minor: 2 }, Version { major: 1, minor: 0 }])
+    print("${vs[0].minor}")   // 0
 }
 ```
 
@@ -330,6 +343,15 @@ Bundled into the compiler; import with `import std/<module> { names }`. See `ref
 | `std/sync`        | `channel`, `channel_buffered`, `send`, `recv`, `yield_now`              |
 | `std/ffi`         | `alloc`, `free`, `load`, `store`, `offset`, `is_null`, `null_ptr`       |
 | `std/random`      | `Rng` (`new`, `from_entropy`, `next_int`, `gen_range`)                  |
+| `std/cmp`         | `min`, `max`, `clamp`, `sort`, `sorted_by` (pairs with `@derive(Ord)`)  |
+| `std/http`        | `get`, `post`, `put`, `delete`, `patch`, `request`; `serve_connection` for a basic server |
+| `std/net`         | `connect`, `listen`, `dns_lookup`, `reachable`                          |
+| `std/encoding`    | `hex_encode`, `hex_decode`, `url_encode`, base64 helpers                |
+| `std/env`         | `get_env`, `has_env`, `get_env_or`, `args`, `arg_count`, `arg_at`, `exit`, `os_name`, `arch` |
+| `std/hash`        | `fnv`, `djb`, `crc`, `checksum`, `combine`                              |
+| `std/path`        | `join`, `basename`, `dirname`, `extension`, `stem`, `normalize`, `is_absolute` |
+| `std/process`     | `run`, `run_with_input`                                                 |
+| `std/regex`       | `compile` and match against compiled patterns                          |
 
 If a name isn't here, read `stdlib/std/<module>.rv` in the Raven repo. Note: a dependency package can also import std free functions (fixed in 2.0.2).
 
@@ -343,12 +365,22 @@ my_project/
 ```
 
 ```bash
-rvpm init my_project        # scaffold
-rvpm run                    # build src/main.rv and run it
-rvpm build                  # compile to target/raven-out/<name>
-rvpm fmt                    # format src/ (pass paths for a library: rvpm fmt lib.rv)
+rvpm init my_project        # scaffold in the current dir (--lib for a library, lib.rv)
+rvpm new my_project         # scaffold in a fresh my_project/ dir (--lib)
+rvpm run                    # build src/main.rv and run it (forwards args: rvpm run -- a b)
+rvpm build                  # compile to target/raven-out/<name>, or type-check a lib.rv
+rvpm test                   # run fun test_*() tests in *_test.rv files
+rvpm doc                    # generate Markdown API docs into target/doc
+rvpm fmt                    # format .rv files in place (pass paths for a library: rvpm fmt lib.rv)
 rvpm fmt --check            # CI: non-zero if anything would change
-rvpm add github.com/user/repo@v1.0.0   # add a GitHub-direct dependency
+
+rvpm add github.com/user/repo@v1.0.0   # add a GitHub-direct dependency, write rv.lock
+rvpm install                # resolve rv.toml against rv.lock and fill the cache
+rvpm update [pkg]           # re-resolve and rewrite rv.lock for one package or all
+rvpm fetch github.com/user/repo@v1.0.0 # fetch a package into the shared cache
+rvpm lock                   # generate or validate rv.lock
+rvpm cache list             # inspect the shared cache (also dir / clean)
+rvpm version                # print the rvpm version (also --version, -V)
 
 raven build file.rv -o out  # compile a single file to a native binary
 ./out                       # run it
@@ -362,7 +394,7 @@ There is no `raven file.rv` direct-run, no `-c` type-check flag, and no REPL in 
 2. Write small free functions; group methods in `impl` blocks.
 3. Write `fun main()` (do not call it).
 4. `raven build src/main.rv -o app` (or `rvpm run`). Compile early and often; the type checker catches the bulk of mistakes.
-5. If a parse error appears, the usual cause is a pitfall above: a stray `;`, lowercase type name, `const`, `.len()` on a `String`, or an unqualified enum constructor.
+5. If a parse error appears, the usual cause is a pitfall above: a stray `;`, lowercase type name, `.len()` on a `String`, or an unqualified enum constructor.
 6. `rvpm fmt` before committing.
 
 ## Style

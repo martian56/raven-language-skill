@@ -10,7 +10,7 @@ import std/collections { Map, Set }
 import std/string                      // method-only module: merges String methods
 ```
 
-Free functions must be selected by name to be callable unqualified. There is no `module.function()` call form.
+Selecting free functions by name (and calling them unqualified) is the form that always works. A `module.function()` qualified call works for some runtime-backed modules (`fs.exists(...)`) but not all (`math.sqrt(...)` is rejected), so prefer selectors.
 
 Available modules: `io`, `string`, `collections`, `iter`, `math`, `cmp`, `hash`, `fmt`, `encoding`, `random`, `env`, `fs`, `time`, `net`, `http`, `json`, `regex`, `process`, `ffi`, `error`, `path`, `test`, `sync`, plus the always-in-scope `core` prelude.
 
@@ -152,6 +152,26 @@ import std/sync { channel, channel_buffered, yield_now }
 ```
 
 `channel()` is unbuffered, `channel_buffered(cap)` holds up to `cap`. Methods `ch.send(Int)` and `ch.recv() -> Int` block (yielding to the scheduler) when full/empty. `yield_now()` hands control to another goroutine. Channels carry `Int` in this release.
+
+## std/cmp
+
+```raven
+import std/cmp { min, max, clamp, sort, sorted_by }
+```
+
+`min`/`max`/`clamp` over orderable values, `sort(list) -> List<T>` and `sorted_by(list, key)` return sorted copies. `sort` relies on ordering, so it works on numbers, `String`, and any `struct`/`enum` that derives `@derive(Ord)` (which provides `compare(self, other) -> Int`, comparing structs field-by-field in declaration order and enums by variant order then payload).
+
+```raven
+import std/cmp { sort }
+
+@derive(Ord)
+struct Version { major: Int, minor: Int }
+
+fun main() {
+    let vs = sort([Version { major: 1, minor: 2 }, Version { major: 1, minor: 0 }])
+    print("${vs[0].minor}")   // 0
+}
+```
 
 ## std/random
 
