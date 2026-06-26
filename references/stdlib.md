@@ -148,10 +148,24 @@ enum JsonValue {
 ## std/sync
 
 ```raven
-import std/sync { channel, channel_buffered, yield_now }
+import std/sync { channel, channel_buffered, yield_now, sleep_millis, mutex, wait_group, select_recv }
 ```
 
-`channel()` is unbuffered, `channel_buffered(cap)` holds up to `cap`. Methods `ch.send(Int)` and `ch.recv() -> Int` block (yielding to the scheduler) when full/empty. `yield_now()` hands control to another goroutine. Channels carry `Int` in this release.
+Goroutines (`spawn`) run in parallel on a per-core worker pool; a goroutine suspends only at a blocking point and may resume on a different worker.
+
+- **Channels.** `channel()` is unbuffered, `channel_buffered(cap)` holds up to `cap`. `ch.send(Int)` and `ch.recv() -> Int` block when full/empty. Channels carry `Int` in this release. `ch.free()` releases the registry entry (no destructor).
+- **`yield_now()`** hands control to another ready goroutine; **`sleep_millis(ms)`** parks the current one.
+- **`Mutex`** (`mutex()`): `m.lock()` blocks until free, `m.unlock()` releases (call only while held).
+- **`WaitGroup`** (`wait_group()`): `wg.add(n)` before spawning, `wg.done()` as each unit finishes, `wg.wait()` blocks until the count hits zero; `wg.free()` when done.
+- **`select_recv(channels: List<Channel>) -> SelectResult`** blocks until one channel has a value; `SelectResult` is `{ index, value }` (lowest ready index wins, `index` is -1 for an empty list). It frees its own select set.
+
+## std/fmt
+
+```raven
+import std/fmt { pad_left, pad_right, center, join, to_hex, format_float }
+```
+
+String formatting helpers: `pad_left`/`pad_right`/`center(s, width, fill)`, `repeat(s, n)`, `join(parts, sep)`, radix conversion `to_hex`/`to_binary`/`to_octal`/`to_radix(n, base)` and back with `from_hex`/`from_radix`, `format_float(x, decimals)`, and `pad_int(n, width)`.
 
 ## std/cmp
 

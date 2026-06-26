@@ -23,7 +23,7 @@ For a print without the trailing newline, or to print explicitly via the stdlib,
 ## Concurrency
 
 ### `spawn(closure)`
-Starts a goroutine on the cooperative scheduler. The closure has type `fun() -> Unit`.
+Starts a goroutine, run in parallel on the per-core worker pool. The closure has type `fun() -> Unit`.
 
 ```raven
 spawn(fun() -> Unit { ch.send(1) })

@@ -1,9 +1,9 @@
 ---
 name: raven-language-skill
-description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (std/io, std/string, std/collections, std/math, std/iter, std/fs, std/time, std/json, std/net, std/http, std/ffi, std/sync, std/cmp, std/random, std/env, std/encoding, std/hash, std/path, std/process, std/regex), or running raven/rvpm commands. Raven v2 is a statically-typed compiled language (Cranelift backend, tracing GC) with generics, traits, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. It has a few syntax pitfalls (no semicolons, PascalCase types, string-method name is `.length()` not `.len()`, enum construction is qualified) that this skill helps Claude avoid. Trigger even when the user just mentions a `.rv` file or rvpm. Do NOT trigger for the Raven compiler source itself (the `.rs` files) or unrelated languages.
+description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (std/io, std/string, std/fmt, std/collections, std/math, std/iter, std/fs, std/time, std/json, std/net, std/http, std/ffi, std/sync, std/cmp, std/random, std/env, std/encoding, std/hash, std/path, std/process, std/regex), or running raven/rvpm commands. Raven v2 is a statically-typed compiled language (Cranelift backend, tracing GC) with generics, traits, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. It has a few syntax pitfalls (no semicolons, PascalCase types, string-method name is `.length()` not `.len()`, enum construction is qualified) that this skill helps Claude avoid. Trigger even when the user just mentions a `.rv` file or rvpm. Do NOT trigger for the Raven compiler source itself (the `.rs` files) or unrelated languages.
 metadata:
   author: martian56
-  version: 2.1.0
+  version: 2.2.0
 ---
 
 # Raven Language (v2)
@@ -259,7 +259,38 @@ fun main() {
 }
 ```
 
-Channels carry `Int` and block (yielding to the cooperative scheduler) when full or empty.
+Goroutines run in **parallel** on a pool of worker threads (one per core), so `spawn` is true parallelism, not cooperative time-slicing. A goroutine only ever suspends at a blocking point (a full/empty channel, `yield_now`, `sleep_millis`), and the scheduler may resume it on a different worker than it ran on before. Channels carry `Int` and block when full (send) or empty (recv).
+
+`std/sync` also has a `Mutex`, a `WaitGroup`, and `select`:
+
+```raven
+import std/sync { mutex, wait_group, channel, select_recv }
+
+fun main() {
+    // Mutex: lock() blocks until free, unlock() releases (call only while held).
+    let m = mutex()
+    m.lock()
+    m.unlock()
+
+    // WaitGroup: add() before spawning, done() as each finishes, wait() blocks to zero.
+    let wg = wait_group()
+    wg.add(1)
+    spawn(fun() -> Unit {
+        wg.done()
+    })
+    wg.wait()
+
+    // select_recv: block on several channels, lowest ready index wins. The
+    // SelectResult is { index, value } (index -1 if the list was empty).
+    let a = channel()
+    let b = channel()
+    spawn(fun() -> Unit { a.send(7) })
+    let r = select_recv([a, b])
+    print("chan ${r.index} -> ${r.value}")
+}
+```
+
+Channels, wait groups, and select sets hold runtime registry entries with no destructor; call `.free()` (or `select_recv` frees its own set) when you are done with one to avoid leaking the entry.
 
 ### Metaprogramming: derive + macros + reflection
 
@@ -334,13 +365,14 @@ Bundled into the compiler; import with `import std/<module> { names }`. See `ref
 | ----------------- | ----------------------------------------------------------------------- |
 | `std/io`          | `print`, `println`                                                      |
 | `std/string`      | merges `String` methods: `to_upper`, `to_lower`, `trim`, `split`, `concat`, `contains`, `replace`, `substring`, `length`, … |
+| `std/fmt`         | string formatting: `pad_left`, `pad_right`, `center`, `repeat`, `join`, `to_hex`/`to_binary`/`to_octal`/`to_radix`, `from_hex`/`from_radix`, `format_float`, `pad_int` |
 | `std/collections` | `Map<K, V>`, `Set<T>` with constructors and methods                     |
 | `std/iter`        | `collect`, `fold`, `count` over `.iter().map(...).filter(...)` pipelines |
 | `std/math`        | `sqrt`, `pow`, `pow_int`, `abs`, `min`, `max`, `pi`, `e`, trig, …       |
 | `std/fs`          | `read`, `write`, `append`, `exists`, `remove_file`, `list_dir`, `split_lines` (all return `Result` where fallible) |
 | `std/time`        | `now`, `now_millis`, `format_timestamp`, `parse_timestamp`              |
 | `std/json`        | `JsonValue` enum, `parse`, `stringify`                                  |
-| `std/sync`        | `channel`, `channel_buffered`, `send`, `recv`, `yield_now`              |
+| `std/sync`        | `channel`, `channel_buffered`, `send`/`recv`, `yield_now`, `sleep_millis`, `Mutex` (`mutex`, `lock`/`unlock`), `WaitGroup` (`wait_group`, `add`/`done`/`wait`), `select_recv` |
 | `std/ffi`         | `alloc`, `free`, `load`, `store`, `offset`, `is_null`, `null_ptr`       |
 | `std/random`      | `Rng` (`new`, `from_entropy`, `next_int`, `gen_range`)                  |
 | `std/cmp`         | `min`, `max`, `clamp`, `sort`, `sorted_by` (pairs with `@derive(Ord)`)  |
@@ -352,6 +384,7 @@ Bundled into the compiler; import with `import std/<module> { names }`. See `ref
 | `std/path`        | `join`, `basename`, `dirname`, `extension`, `stem`, `normalize`, `is_absolute` |
 | `std/process`     | `run`, `run_with_input`                                                 |
 | `std/regex`       | `compile` and match against compiled patterns                          |
+| `std/test`        | assertions for `rvpm test`: `assert`, `assert_msg`, `assert_true`/`assert_false`, `assert_eq`/`assert_ne` (generic), `assert_eq_int`/`assert_eq_str`/`assert_eq_float`, `assert_some`/`assert_none`/`assert_ok` |
 
 If a name isn't here, read `stdlib/std/<module>.rv` in the Raven repo. Note: a dependency package can also import std free functions (fixed in 2.0.2).
 
@@ -369,7 +402,7 @@ rvpm init my_project        # scaffold in the current dir (--lib for a library, 
 rvpm new my_project         # scaffold in a fresh my_project/ dir (--lib)
 rvpm run                    # build src/main.rv and run it (forwards args: rvpm run -- a b)
 rvpm build                  # compile to target/raven-out/<name>, or type-check a lib.rv
-rvpm test                   # run fun test_*() tests in *_test.rv files
+rvpm test                   # run fun test_*() tests in *_test.rv files (assert with import std/test)
 rvpm doc                    # generate Markdown API docs into target/doc
 rvpm fmt                    # format .rv files in place (pass paths for a library: rvpm fmt lib.rv)
 rvpm fmt --check            # CI: non-zero if anything would change
