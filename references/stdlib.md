@@ -203,9 +203,24 @@ import std/ffi { alloc, free, load, store, offset, is_null, null_ptr }
 
 Raw memory for the C FFI: `alloc<T>(n)`, `free<T>(p)`, `store<T>(p, v)`, `load<T>(p) -> T`, `offset<T>(p, i)`, `is_null<T>(p)`, `null_ptr<T>()`. C types (`CInt`, `CStr`, `CPtr<T>`, `CFnPtr`, …) are built in; declare foreign functions in an `extern "C"` block.
 
-## std/net, std/http, std/process, std/env, std/regex, std/encoding, std/test
+## std/net, std/http, std/tls, std/process, std/env, std/regex, std/encoding, std/test
 
-Convenience modules over sockets, HTTP, subprocesses, environment variables, regular expressions, byte/string encoding, and test assertions. The APIs are small; read `stdlib/std/<module>.rv` for the current set (for example `import std/http`, `import std/net { connect }`, `import std/env { get_env }`, `import std/regex { compile }`, `import std/test { assert, assert_eq_int }`).
+Convenience modules over sockets, HTTP, TLS, subprocesses, environment variables, regular expressions, byte/string encoding, and test assertions. The APIs are small; read `stdlib/std/<module>.rv` for the current set (for example `import std/http`, `import std/net { connect }`, `import std/env { get_env }`, `import std/regex { compile }`, `import std/test { assert, assert_eq_int }`).
+
+`std/tls` is client-side TLS for raw encrypted streams (the transport for database/cache clients). `connect(addr, server_name)` verifies against the bundled root store; `connect_with(addr, server_name, config())` takes a builder with `add_ca_file` (private CA), `client_cert` (mutual TLS), and `insecure_skip_verify` (dev only). `TlsStream` reads/writes bytes in a `String` buffer like `std/net`. Outbound `https://` through the `std/http` client already works (ureq-backed), so it needs nothing from `std/tls`.
+
+```raven
+import std/tls { connect }
+
+match connect("example.com:443", "example.com") {
+    Ok(s) -> {
+        let _ = s.write("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
+        let head = s.read(64)
+        s.close()
+    },
+    Err(e) -> println(e.message()),
+}
+```
 
 ---
 

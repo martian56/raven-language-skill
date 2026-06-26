@@ -1,9 +1,9 @@
 ---
 name: raven-language-skill
-description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (std/io, std/string, std/fmt, std/collections, std/math, std/iter, std/fs, std/time, std/json, std/net, std/http, std/ffi, std/sync, std/cmp, std/random, std/env, std/encoding, std/hash, std/path, std/process, std/regex), or running raven/rvpm commands. Raven v2 is a statically-typed compiled language (Cranelift backend, tracing GC) with generics, traits, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. It has a few syntax pitfalls (no semicolons, PascalCase types, string-method name is `.length()` not `.len()`, enum construction is qualified) that this skill helps Claude avoid. Trigger even when the user just mentions a `.rv` file or rvpm. Do NOT trigger for the Raven compiler source itself (the `.rs` files) or unrelated languages.
+description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (std/io, std/string, std/fmt, std/collections, std/math, std/iter, std/fs, std/time, std/json, std/net, std/http, std/tls, std/ffi, std/sync, std/cmp, std/random, std/env, std/encoding, std/hash, std/path, std/process, std/regex), or running raven/rvpm commands. Raven v2 is a statically-typed compiled language (Cranelift backend, tracing GC) with generics, traits, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. It has a few syntax pitfalls (no semicolons, PascalCase types, string-method name is `.length()` not `.len()`, enum construction is qualified) that this skill helps Claude avoid. Trigger even when the user just mentions a `.rv` file or rvpm. Do NOT trigger for the Raven compiler source itself (the `.rs` files) or unrelated languages.
 metadata:
   author: martian56
-  version: 2.2.0
+  version: 2.3.0
 ---
 
 # Raven Language (v2)
@@ -378,6 +378,7 @@ Bundled into the compiler; import with `import std/<module> { names }`. See `ref
 | `std/cmp`         | `min`, `max`, `clamp`, `sort`, `sorted_by` (pairs with `@derive(Ord)`)  |
 | `std/http`        | `get`, `post`, `put`, `delete`, `patch`, `request`; `serve_connection` for a basic server |
 | `std/net`         | `connect`, `listen`, `dns_lookup`, `reachable`                          |
+| `std/tls`         | client TLS: `connect(addr, server_name)` (verified), `connect_with` + `config()` builder (`add_ca_file`, `client_cert`, `insecure_skip_verify`); `TlsStream` read/write/close. `std/http` already does `https://` |
 | `std/encoding`    | `hex_encode`, `hex_decode`, `url_encode`, base64 helpers                |
 | `std/env`         | `get_env`, `has_env`, `get_env_or`, `args`, `arg_count`, `arg_at`, `exit`, `os_name`, `arch` |
 | `std/hash`        | `fnv`, `djb`, `crc`, `checksum`, `combine`                              |
