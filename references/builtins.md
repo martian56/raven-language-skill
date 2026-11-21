@@ -1,100 +1,80 @@
-# Raven built-ins and core methods (v2)
+# Raven built-ins and core methods (3.0)
 
-What is available without an `import`, plus the methods on the core collection and string types. Anything beyond this lives in a stdlib module (see `references/stdlib.md`).
+Everything on this page is in scope with no import.
 
-## Always-available functions
+## Builtin functions
 
-### `print(value)`
-Writes to stdout followed by a newline. The argument is usually an interpolated string. There are no format specifiers; interpolate values with `${expr}`.
+| Call | Meaning |
+|------|---------|
+| `print(a, b, ...)` | print values separated by spaces, then a newline |
+| `len(x)` | length of a `str` (bytes), list, dict, or set |
+| `range(n)`, `range(a, b)`, `range(a, b, step)` | the ints `0..n`, `a..b`, stepped |
+| `sum(xs)`, `min(xs)`, `max(xs)` | over a list (`min`/`max` panic on an empty list) |
+| `sorted(xs)`, `sorted(xs, reverse: true)`, `reversed(xs)` | new lists |
+| `enumerate(xs)`, `zip(a, b)` | lists of `(index, item)` and `(a, b)` tuples |
+| `str(x)`, `int(x)`, `float(x)` | conversions; `int("42")` parses and panics on bad input |
+| `abs(x)`, `round(x)` | numbers |
+| `panic(msg)` | stop the program with a message |
+| `assert cond` / `assert cond, msg` | statement; fails with the condition's text or `msg` |
+| `set()` | an empty set |
+| `type_name[T]()`, `field_names[T]()` | compile-time reflection |
 
-```raven
-print("hello")
-print("x = ${x}, y = ${y}")
-```
+Casts: `x as int` (truncates), `x as float`, `x as str`.
 
-For a print without the trailing newline, or to print explicitly via the stdlib, use `import std/io { print, println }`.
+## Values in the prelude
 
-> There is no global `panic`, `format`, `input`, `len(x)`, or `read_file` in v2. Use `${...}` interpolation instead of `format`, the `.len()` method on collections, and the `std/fs`/`std/io` modules for I/O.
+`Some(x)`, `None`, `Ok(x)`, `Err(e)`, `true`, `false`. The `Error` type from
+`std.error` and the core traits `ToString`, `Eq`, `Ord`, `Hash`, and
+`Iterator[T]` are in scope too.
 
-## Prelude values (no import)
+## Operators on collections and strings
 
-`Some(x)`, `None`, `Ok(x)`, `Err(e)` construct `Option<T>` and `Result<T, E>`. The `?` operator unwraps `Ok`/`Some` and early-returns `Err`/`None`.
+- `x in xs`, `x not in xs` for lists, sets, dict keys, and substrings.
+- `xs[i]`, `xs[-1]`, `xs[a..b]`, `xs[a..]`, `xs[..b]`, `xs[a..=b]`; negative
+  bounds count from the end. Slicing works on `str` by byte offset.
+- `d[k]` reads (panics when missing), `d[k] = v`, `d[k] += 1`.
+- `list + list`, `list * n`, `str + str`, `str * n`.
+- `for x in xs`, `for (k, v) in d`, `for c in s` (characters), `for i in 0..n`,
+  `for i in (0..n).step(2)`.
+
+## list[T] methods
+
+`len`, `is_empty`, `push(x)`, `pop()`, `reserve(n)`, `extend(other)`,
+`concat(other)`, `contains(x)`, `index_of(x)`, `count(f)`, `first()`,
+`last()` (both `Option`), `slice(a, b)`, `take(n)`, `skip(n)`, `reversed()`,
+`sort()`, `sorted()`, `sorted_by(cmp)`, `min()`, `max()` (both `Option`),
+`sum()`, `join(sep)` (for `list[str]`), `map(f)`, `filter(f)`,
+`fold(init, f)`, `each(f)`, `any(f)`, `all(f)`, `find(f)`, `position(f)`,
+`enumerate()`, `zip(other)`, `step(k)`.
+
+## str methods
+
+`len()`, `is_empty()`, `split(sep)`, `split_whitespace()`, `lines()`,
+`strip()`, `trim_start()`, `trim_end()`, `upper()`, `lower()`,
+`replace(a, b)`, `startswith(p)`, `endswith(p)`, `contains(p)`,
+`index_of(p)`, `last_index_of(p)`, `count(p)`, `slice(a, b)`, `repeat(n)`,
+`reverse()`, `join(parts)` (`", ".join(xs)`), `char_at(i)`, `byte_at(i)`,
+`parse_int()`, `parse_float()` (both `Option`), `is_blank()`, `iter()`
+(characters).
+
+## dict[K, V] and set[T] methods
+
+dict: `len`, `is_empty`, `get(k)` (`Option`), `get_or(k, default)`,
+`set(k, v)`, `contains(k)`, `remove(k)`, `keys()`, `values()`, `items()`
+(`(k, v)` tuples), `clear()`. set: `len`, `is_empty`, `add(x)`,
+`contains(x)`, `remove(x)`, `to_list()`, `union(o)`, `intersection(o)`,
+`difference(o)`, `is_subset(o)`. Iteration follows insertion order. Keys and elements
+must implement `Eq` and `Hash` (`int`, `bool`, `str`, tuples of those, and
+any plain class).
+
+## Option[T] and Result[T, E] methods
+
+`unwrap()`, `expect(msg)`, `unwrap_or(x)`, `unwrap_or_else(f)`, `map(f)`,
+`and_then(f)`, `or_else(f)`, `is_some()`, `is_none()`, `is_ok()`,
+`is_err()`, `ok_or(e)`, `ok()`, `err()`, `map_err(f)`, `unwrap_err()`.
 
 ## Concurrency
 
-### `spawn(closure)`
-Starts a goroutine, run in parallel on the per-core worker pool. The closure has type `fun() -> Unit`.
-
-```raven
-spawn(fun() -> Unit { ch.send(1) })
-```
-
-Channels come from `std/sync`.
-
-## Compile-time reflection (no import)
-
-### `type_name<T>() -> String`
-The name of the type argument, resolved at compile time (per monomorphization for a generic `T`).
-
-### `field_names<T>() -> List<String>`
-A struct type's field names, in declaration order.
-
-```raven
-fun introspect<T>() {
-    print("type ${type_name<T>()}")
-    for f in field_names<T>() {
-        print("  field ${f}")
-    }
-}
-```
-
-Runtime reflection (`to_any`, `type_name_of`, `field_names_of`, `get_field`, `cast<T>`) is also available; see the reflection module/source for exact signatures.
-
-## `List<T>` methods (built-in, no import)
-
-| Form                | Result        | Notes                                             |
-| ------------------- | ------------- | ------------------------------------------------- |
-| `xs[i]`             | `T`           | Direct element access; the common accessor        |
-| `xs[i] = v`         | mutate        | In-place element assignment                        |
-| `xs.len()`          | `Int`         | Element count                                      |
-| `xs.push(v)`        | mutate        | Append; mutates the list in place                  |
-| `xs.get(i)`         | `Option<T>`   | Bounds-checked; a `match` on it may need a `_` arm |
-| `xs.iter()`         | iterator      | Bridge into `std/iter` (`.map`, `.filter`, …)      |
-
-List literals: `[1, 2, 3]`; an empty list needs a type annotation (`let xs: List<Int> = []`).
-
-`Map<K, V>` and `Set<T>` are not built-in; import them from `std/collections`.
-
-## `String` methods (require `import std/string`)
-
-Importing `std/string` merges these methods onto every `String`. The length method is `.length()` (the `.len()` you would expect type-checks but fails in codegen, so always use `.length()` on strings).
-
-| Method                                 | Returns    | Notes                              |
-| -------------------------------------- | ---------- | ---------------------------------- |
-| `s.length()`                           | `Int`      | Byte length                        |
-| `s.substring(start, end)`              | `String`   | Half-open `[start, end)`           |
-| `s.concat(other)`                      | `String`   | Concatenation                      |
-| `s.to_upper()` / `s.to_lower()`        | `String`   |                                    |
-| `s.trim()`                             | `String`   | Strip leading/trailing whitespace  |
-| `s.repeat(n)`                          | `String`   |                                    |
-| `s.index_of(needle)`                   | `Int`      | `-1` if absent                     |
-| `s.contains(needle)`                   | `Bool`     |                                    |
-| `s.starts_with(prefix)`                | `Bool`     |                                    |
-| `s.replace(from, to)`                  | `String`   | Replace all occurrences            |
-| `s.char_at(i)`                         | `String`   | One-character string at byte `i`   |
-
-Strings are immutable: every method returns a new string. Compare with `==`; `<`/`>` ordering operators work on `String` (lexicographic), and `match` on string-literal patterns works (`match s { "a" -> ..., _ -> ... }`).
-
-### Low-level string intrinsics (no import)
-
-Used by the stdlib; occasionally handy for byte-level work.
-
-| Intrinsic                    | Returns  | Notes                              |
-| ---------------------------- | -------- | ---------------------------------- |
-| `__str_len(s)`               | `Int`    | Byte length (what `.length()` calls) |
-| `__str_byte_at(s, i)`        | `Int`    | ASCII byte at index `i`            |
-| `__str_concat(a, b)`         | `String` |                                    |
-| `__str_substring(s, a, b)`   | `String` |                                    |
-| `__str_from_byte(b)`         | `String` | One-character string from a byte   |
-
-Prefer the `std/string` methods; reach for the intrinsics only when parsing bytes.
+`spawn { ... }` starts a goroutine and returns a task with `join()`.
+Channels come from `std.sync`: `channel()`, `channel_buffered(n)`, typed
+`Channel[T]` with `send(x)` and `recv()`.

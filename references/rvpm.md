@@ -1,127 +1,88 @@
-# rvpm and the `raven` CLI (v2)
-
-`raven` is the compiler and build driver. `rvpm` is the package manager and project runner. Both ship in the v2 release and should be on `PATH`. A C linker must also be available (`link.exe` on Windows via the MSVC build tools, `cc`/`clang` on Unix) so the compiler can link the runtime into your program.
+# rvpm and the `raven` CLI (3.0)
 
 ## Project layout
 
-```
-my_project/
-├── rv.toml          # manifest
-├── rv.lock          # resolved dependency versions + tree hashes (commit this)
-└── src/
-    └── main.rv      # entry point: defines fun main()
+```text
+app/                    rvpm new app
+├── rv.toml
+├── src/main.rv         fun main() lives here
+└── src/*_test.rv       tests (any *_test.rv in the package)
+
+mylib/                  rvpm new mylib --lib
+├── rv.toml
+└── lib.rv              what other packages import
 ```
 
-A library package that is meant to be imported uses a `lib.rv` at the repo root instead of `src/main.rv` (a bare `import "github.com/user/repo"` loads `lib.rv`; `import "github.com/user/repo/sub"` loads `sub.rv`).
-
-## `rv.toml`
+## rv.toml
 
 ```toml
 [package]
-name = "my_project"
+name = "app"
 version = "0.1.0"
-edition = "v2"
+edition = "v3"
 
 [dependencies]
-"github.com/user/raven-json" = "1.0"
-
-# [ffi]                 # optional native link pass-through
-# libs = ["sqlite3"]    # (parsed; linking of external libs is still limited)
+"github.com/martian56/raven-csv" = "v0.2.0"
 
 # [fmt]
 # indent_width = 4
 # wrap_width = 100
 ```
 
-- `[package]` — `name`, `version`, `edition` (`v2`).
-- `[dependencies]` — GitHub-direct packages keyed by `github.com/<user>/<repo>`, value is a version constraint (a git tag like `1.0`/`v1.0.0`).
-- `[ffi]` — optional `libs` / `link_args` for native linking (schema exists; full wiring is limited in this release).
-- `[fmt]` — `indent_width` (default 4), `wrap_width` (default 100).
+`edition = "v3"` is the default and the only accepted edition. A package
+with `edition = "v2"` is Raven 2 syntax and is rejected with a message
+saying so.
 
-## `rvpm` subcommands
+## rvpm commands
 
-| Command                         | What it does                                                        |
-| ------------------------------- | ------------------------------------------------------------------- |
-| `rvpm init [name]`              | Scaffold `rv.toml` + `src/main.rv` here (`--lib` for a library, `lib.rv`). |
-| `rvpm new <name>`               | Scaffold a new package in a fresh `<name>/` directory (`--lib`).     |
-| `rvpm add <pkg>[@version]`      | Add a GitHub dependency, resolve it, write `rv.lock`, fill the cache.|
-| `rvpm install`                  | Resolve `rv.toml` against `rv.lock` and populate the cache.          |
-| `rvpm update [pkg]`             | Re-resolve and rewrite `rv.lock` for one package or all.             |
-| `rvpm build`                    | Compile `src/main.rv` to `target/raven-out/<name>`, or type-check a `lib.rv` library. |
-| `rvpm run [args]`               | Build then run, forwarding `args`.                                   |
-| `rvpm test`                     | Run `fun test_*()` tests in `*_test.rv` files.                       |
-| `rvpm doc`                      | Generate Markdown API docs into `target/doc`.                        |
-| `rvpm fmt [paths]`              | Format in place (defaults to `src/`; pass paths for a library). `--check` for CI. |
-| `rvpm fetch <pkg>`              | Fetch `github.com/<user>/<repo>@<version>` into the shared cache.    |
-| `rvpm lock`                     | Generate or validate `rv.lock`.                                      |
-| `rvpm cache <sub>`              | Inspect or clear the shared cache (`dir` / `list` / `clean`).        |
-| `rvpm version`                  | Print the rvpm version (also `--version`, `-V`).                     |
+| Command | What it does |
+|---------|--------------|
+| `rvpm new <name> [--lib]` / `rvpm init [--lib]` | scaffold a package |
+| `rvpm build` | compile `src/main.rv` to `target/raven-out/<name>`, or type check a library |
+| `rvpm run [args]` | build, then run |
+| `rvpm test [NAME]` | run `fun test_*()` in `*_test.rv`; with `NAME`, only tests whose name contains it |
+| `rvpm fmt [paths] [--check]` | format sources in place |
+| `rvpm add github.com/user/repo@v1.2.0` | add a dependency and lock it |
+| `rvpm install` / `rvpm update [pkg]` | fill the cache from `rv.lock` / re-resolve |
+| `rvpm doc` | Markdown API docs into `target/doc` |
+| `rvpm dist` | package the app (tar, zip, deb, rpm, msi) |
+| `rvpm fetch`, `rvpm lock`, `rvpm cache dir/list/clean`, `rvpm workspace` | plumbing |
 
-Package arguments use the `github.com/<user>/<repo>` form; append `@<tag>` to pin (for example `rvpm add github.com/user/raven-uuid@v0.1.0`).
+Each test runs in its own process, so one failing assertion does not stop
+the others.
 
-## The `raven` CLI
+## raven commands
 
-```bash
-raven build file.rv -o out    # compile a single .rv file to a native binary
-raven build file.rv           # compile to a default output path
-raven --version
-raven --help
-```
+| Command | What it does |
+|---------|--------------|
+| `raven run file.rv [args]` | compile and run one file |
+| `raven build file.rv -o out` | compile to a native binary |
+| `raven check file.rv` | type check only |
+| `raven fmt file.rv [--write]` | print formatted source, or rewrite in place |
+| `raven --version` | print the version |
 
-There is no `raven file.rv` direct-run, no `-c` type-check-only flag, and no REPL in v2. Compiling is the check: if `raven build` succeeds, the program type-checked, lowered, and linked. Run the produced binary directly (`./out`).
+`RAVEN_TIMINGS=1` prints how long each compiler phase took.
 
-## Module resolution
+## Imports and module resolution
 
-`import` targets resolve by form:
-
-1. `import std/<module>` — the bundled standard library, compiled into the `raven` binary (`include_str!`), always available.
-2. `import "./rel"` or `import "../rel"` — a sibling/relative `.rv` file resolved against the importing file.
-3. `import "github.com/<user>/<repo>[/<sub>]"` — a package from the rvpm cache, fetched via `git` into `~/.rvpm/cache/...` and pinned by `rv.lock`. A bare path loads `lib.rv`; a subpath loads `<sub>.rv`.
-
-A consumed dependency may itself import std modules and use their types, methods, and (as of 2.0.2) free functions.
+- `import std.fs` / `from std.fs import read`: a bundled stdlib module.
+- `from "./models" import User`: `models.rv` next to the importing file;
+  `"../shared/util"` works too.
+- `from "github.com/user/repo" import Thing`: the package's `lib.rv`;
+  `"github.com/user/repo/sub"` loads `sub.rv` inside it. The package must be
+  in `[dependencies]`.
+- Every top-level item is importable from another file; `pub` is accepted
+  on declarations but not enforced yet.
 
 ## Common workflows
 
-### Start a project
-
 ```bash
-rvpm init my_thing
-cd my_thing
+rvpm new app && cd app
 rvpm run
-```
-
-### Add and use a GitHub package
-
-```bash
-rvpm add github.com/martian56/raven-uuid@v0.1.0
-```
-
-```raven
-import "github.com/martian56/raven-uuid" { Uuid }
-
-fun main() {
-    let id = Uuid.v4()
-    print("${id.to_string()}")
-}
-```
-
-### Add a local module
-
-Drop `src/util.rv` next to `main.rv`, then:
-
-```raven
-import "./util" { helper }
-```
-
-### Build, run, format
-
-```bash
-raven build src/main.rv -o app && ./app
-rvpm run
+rvpm add github.com/martian56/raven-csv@v0.2.0
+rvpm test
 rvpm fmt
-rvpm fmt --check        # CI
 ```
 
-### Publish a package
-
-Push the repo (with `rv.toml` and a root `lib.rv`) to GitHub and tag a semver release (`git tag v0.1.0 && git push --tags`). Pushing the tag is the publish; consumers then `rvpm add github.com/<user>/<repo>@v0.1.0`.
+Publishing a library is pushing a git tag: dependents name the repository
+and the tag in `[dependencies]`.
