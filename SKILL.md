@@ -3,7 +3,7 @@ name: raven-language-skill
 description: Reference and patterns for writing Raven programming language source (.rv files). Use this whenever the user is writing, editing, debugging, or reviewing Raven code, working in an rvpm project (rv.toml), discussing Raven syntax, importing from Raven's stdlib (std.io, std.string, std.fmt, std.collections, std.math, std.iter, std.fs, std.time, std.json, std.net, std.http, std.tls, std.ffi, std.sync, std.cmp, std.random, std.env, std.encoding, std.hash, std.path, std.process, std.regex, std.test), or running raven/rvpm commands. Raven 3 reads like Python with braces and compiles to native code (Cranelift backend, tracing GC), with classes, traits, generics, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. This skill steers Claude away from the syntax traps (lowercase types, `let` is immutable, `case` arms, square-bracket generics, `from x import y`). Trigger even when the user just mentions a `.rv` file or rvpm. Do NOT trigger for the Raven compiler source itself (the `.rs` files) or unrelated languages.
 metadata:
   author: martian56
-  version: 3.0.0
+  version: 3.0.1
 ---
 
 # Raven Language (3.0)
