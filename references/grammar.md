@@ -33,8 +33,9 @@ Read this when something parses surprisingly. The full reference is
 9. `+  -`
 10. `*  /  %`
 11. unary `-`
-12. `as`
-13. postfix: call `f(x)`, field `x.f`, index `x[i]`, `?`
+12. `**` (right associative; `-x ** 2` is `-(x ** 2)`)
+13. `as`
+14. postfix: call `f(x)`, field `x.f`, index `x[i]`, `?`
 
 ## Declarations
 

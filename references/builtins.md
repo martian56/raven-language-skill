@@ -11,6 +11,7 @@ Everything on this page is in scope with no import.
 | `range(n)`, `range(a, b)`, `range(a, b, step)` | the ints `0..n`, `a..b`, stepped |
 | `sum(xs)`, `min(xs)`, `max(xs)` | over a list (`min`/`max` panic on an empty list) |
 | `sorted(xs)`, `sorted(xs, reverse: true)`, `reversed(xs)` | new lists |
+| `list(x)` | a copy of a list, or a string's characters |
 | `enumerate(xs)`, `zip(a, b)` | lists of `(index, item)` and `(a, b)` tuples |
 | `str(x)`, `int(x)`, `float(x)` | conversions; `int("42")` parses and panics on bad input |
 | `abs(x)`, `round(x)` | numbers |
@@ -39,7 +40,8 @@ Casts: `x as int` (truncates), `x as float`, `x as str`.
 
 ## list[T] methods
 
-`len`, `is_empty`, `push(x)`, `pop()`, `reserve(n)`, `extend(other)`,
+`len`, `is_empty`, `push(x)` (or `append(x)`), `pop()`, `reserve(n)`,
+`reverse()` (in place), `sort(reverse: true)`, `extend(other)`,
 `concat(other)`, `contains(x)`, `index_of(x)`, `count(f)`, `first()`,
 `last()` (both `Option`), `slice(a, b)`, `take(n)`, `skip(n)`, `reversed()`,
 `sort()`, `sorted()`, `sorted_by(cmp)`, `min()`, `max()` (both `Option`),

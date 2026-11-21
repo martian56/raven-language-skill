@@ -36,7 +36,7 @@ The stdlib source lives in `stdlib/std/*.rv` in the Raven repo, written in Raven
 10. **Python builtins work with no import:** `print(a, b)`, `len`, `range`, `sum`, `min`, `max`, `sorted`, `reversed`, `enumerate`, `zip`, `abs`, `round`, `str`, `int`, `float`. `x in xs`, `xs[-1]`, slices `xs[1..3]`, `xs[2..]`, `xs[..2]`.
 11. **Collections:** `[1, 2]` list, `{"a": 1}` dict, `{1, 2}` and `{x}` sets, `{}` empty dict, `set()` empty set. Comprehensions: `[x * 2 for x in xs if x > 0]`, `{k: v for ...}`. `d[k]`, `d[k] = v`, `for (k, v) in d`.
 12. **No `null`.** Absence is `Option[T]` (`Some(x)` / `None`); fallible results are `Result[T, E]` (`Ok` / `Err`) with `?`. A failing `?` inside `main` stops the program with the error's message.
-13. **`if` / `match` are statements; for a value use `a if cond else b`.** Functions return with `return`, or use a one-line body `fun sq(x: int) -> int = x * x`.
+13. **`if` / `match` are statements; for a value use `a if cond else b`.** `elif` works as `else if`, and `x ** y` is power. Functions return with `return`, or use a one-line body `fun sq(x: int) -> int = x * x`.
 14. **`fun main()` is the entry point.** Define it; never call it.
 15. **A trait used as a type is a trait object:** `fun total(shapes: list[Shape])` takes any class implementing `Shape`, and a list literal of mixed classes converts automatically.
 16. **Strings:** `"hello ${name}"` interpolation, format specs `"${x:.2}"`, `"${s:>8}"`, `"${n:05}"`. `len(s)`, `s.split(",")`, `s.strip()`, `s.upper()`, `", ".join(parts)`, `"ab" * 3`. No import needed.
