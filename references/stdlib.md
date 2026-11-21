@@ -1,236 +1,154 @@
-# Raven standard library (v2)
+# Raven standard library (3.0)
 
-The stdlib is bundled into the compiler (it is no longer shipped as separate files), and each module is written in Raven. The source is `stdlib/std/*.rv` in the Raven repo, and reading it is the authoritative answer for any signature.
+Every module is bundled into the compiler. Import functions by name with
+`from std.fs import read, write`, or import the module and call through it
+with `import std.fs` then `fs.read(path)`. String methods, `dict`, `set`,
+`Result`/`Option` helpers, and `Error` are in the prelude and need no
+import. Fallible calls return `Result[T, Error]`; `e.message()` reads the
+text of an `Error`.
 
-Import a module and select the names you need:
+The stdlib source in `stdlib/std/*.rv` is the authoritative signature list.
 
-```raven
-import std/io { println }
-import std/collections { Map, Set }
-import std/string                      // method-only module: merges String methods
-```
+## std.io
 
-Selecting free functions by name (and calling them unqualified) is the form that always works. A `module.function()` qualified call works for some runtime-backed modules (`fs.exists(...)`) but not all (`math.sqrt(...)` is rejected), so prefer selectors.
+`print(x)`, `println(x)`, `read_line() -> Option[str]`, `input(prompt)`.
+The builtin `print(a, b, ...)` covers most output.
 
-Available modules: `io`, `string`, `collections`, `iter`, `math`, `cmp`, `hash`, `fmt`, `encoding`, `random`, `env`, `fs`, `time`, `net`, `http`, `json`, `regex`, `process`, `ffi`, `error`, `path`, `test`, `sync`, plus the always-in-scope `core` prelude.
+## std.fs
 
----
+`read(path) -> Result[str, Error]`, `read_lines`, `write(path, text)`,
+`append`, `exists`, `is_file`, `is_dir`, `is_symlink`, `size`, `list_dir`,
+`walk`, `create_dir`, `create_dir_all`, `remove_file`, `remove_dir`,
+`copy`, plus path helpers `join`, `basename`, `dirname`.
 
-## std/io
+## std.path
 
-```raven
-import std/io { print, println }
-```
+Path strings without touching the disk: `join`, `basename`, `dirname`,
+`stem`, `extension`, `with_extension`, `components`, `normalize`,
+`is_absolute`, `is_relative`.
 
-`print(s)` writes without a trailing newline; `println(s)` adds one. The global `print` (no import) writes a line.
+## std.env
 
-## std/string
+`args() -> list[str]`, `arg_at(i)`, `arg_count()`, `get_env(name)`,
+`get_env_or(name, default)`, `has_env(name)`, `os_name()`, `arch()`,
+`exit(code)`.
 
-```raven
-import std/string
-```
+## std.process
 
-Method-only module: importing it merges methods onto `String` (`length`, `to_upper`, `to_lower`, `trim`, `substring`, `concat`, `repeat`, `index_of`, `contains`, `starts_with`, `replace`, `char_at`, …). See `references/builtins.md` for the table. Use `.length()`, not `.len()`.
+`run(cmd, args) -> Result[Output, Error]` (`Output` has `code`, `stdout`,
+`stderr`), `run_with_input`, `start` for a `Child`.
 
-## std/collections
+## std.time
 
-```raven
-import std/collections { Map, Set }
-```
+`now() -> int` (seconds), `now_millis()`, `sleep_millis(ms)`,
+`from_timestamp(secs) -> DateTime`, `format_timestamp`, `parse_timestamp`,
+`weekday`; `Date`, `Time`, `DateTime` classes.
 
-### Map<K, V>  (K: Eq + Hash)
+## std.json
 
-```raven
-let m: Map<String, Int> = Map.new()      // or a literal: ["a": 1, "b": 2]
-m.set("a", 1)
-match m.get("a") { Some(v) -> ..., None -> ... }   // get returns Option<V>
-let present = m.has("a")                  // Bool
-let n = m.len()
-let ks = m.keys()                         // List<K>
-let vs = m.values()                       // List<V>
-m.remove("a")                             // Bool
-```
+`parse(text) -> Result[JsonValue, Error]`, `stringify(value)`. With
+`@derive(ToJson, FromJson)` on a class, `x.to_json()` and `T.from_json(v)`.
 
-### Set<T>  (T: Eq + Hash)
+## std.math
 
-```raven
-let s: Set<Int> = Set.new()              // or a literal: {1, 2, 3}
-s.add(1)
-let has = s.contains(1)                  // Bool
-let n = s.len()
-s.remove(1)                              // Bool
-```
+`sqrt`, `pow`, `exp`, `ln`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`,
+`asin`, `acos`, `atan`, `atan2`, `hypot`, `cbrt`, `floor`, `ceil`,
+`trunc`, `round`, `fabs`, `fmod`, `pi()`, `e()`, `tau()`, `min`, `max`,
+`clamp`, `abs`, `sign`, `gcd`, `lcm`, `pow_int`, `to_degrees`,
+`to_radians`, `is_nan`, `is_inf`. `sqrt`, `floor`, `ceil`, `trunc`, and
+`fabs` compile to single instructions.
 
-Mutators act in place (unlike v1, you do not reassign the result).
+## std.random
 
-## std/iter
+`Rng.new(seed)` or `Rng.from_entropy()`, then `next_int()`, `next_float()`,
+`next_bool()`, `gen_range(a, b)`, `gen_range_float(a, b)`, `shuffle(xs)`,
+`choice(xs)`, `sample(xs, k)`, `weighted_choice(xs, weights)`.
 
-```raven
-import std/iter { collect, fold, count }
-```
+## std.fmt
 
-Lazy adapters over `xs.iter()`: `.map(f)`, `.filter(pred)`, `.take(n)`, `.skip(n)`, `.enumerate()`. Drive them with a consumer:
+`pad_left(s, width, fill)`, `pad_right`, `center`, `pad_int`, `join`,
+`repeat`, `format_float(x, places)`, `to_hex`, `to_binary`, `to_octal`,
+`to_radix`, `from_hex`, `from_radix`, and the `Debug` trait (derivable).
+Interpolation format specs (`"${x:.2}"`) cover most formatting.
 
-| Consumer                       | Returns      |
-| ------------------------------ | ------------ |
-| `collect(it)`                  | `List<T>`    |
-| `fold(it, init, f)`            | accumulator  |
-| `count(it)`                    | `Int`        |
+## std.regex
 
-```raven
-let kept: List<Int> = collect(xs.iter().map(fun(x: Int) -> Int = x * 10).filter(fun(y: Int) -> Bool = y > 20))
-let total = fold(xs.iter(), 0, fun(a: Int, v: Int) -> Int = a + v)
-```
+`compile(pattern) -> Result[Regex, Error]`, then `re.is_match(s)`,
+`re.find(s)`, `re.find_all(s)`, `re.replace_all(s, with)`, `re.captures(s)`,
+`re.split(s)`.
 
-## std/math
+## std.encoding
 
-```raven
-import std/math { sqrt, pow, pow_int, abs, abs_int, min, max, min_int, max_int, clamp, clamp_int, pi, e, tau, ln, sin, cos }
-```
+`hex_encode`, `hex_decode`, `base64_encode`, `base64_decode`,
+`base32_encode`, `base32_decode`, `url_encode`, `url_decode`.
 
-`Float` functions: `sqrt`, `pow`, `abs`, `min`, `max`, `clamp`, `ln`, `sin`, `cos`, and constants via `pi()`, `e()`, `tau()` (functions, not constants). `Int` helpers: `abs_int`, `min_int`, `max_int`, `clamp_int`, `pow_int`.
+## std.hash
 
-## std/fs
+`fnv1a`, `djb2`, `crc32`, `checksum`, `combine`, `hash_int`.
 
-```raven
-import std/fs { read, write, append, exists, remove_file, create_dir, remove_dir, list_dir, size, is_file, is_dir, split_lines }
-```
+## std.cmp
 
-| Function                      | Returns                      |
-| ----------------------------- | ---------------------------- |
-| `read(path)`                  | `Result<String, Error>`      |
-| `write(path, contents)`       | `Result<Bool, Error>`        |
-| `append(path, contents)`      | `Result<Bool, Error>`        |
-| `remove_file(path)`           | `Result<Bool, Error>`        |
-| `create_dir(path)`            | `Result<Bool, Error>`        |
-| `list_dir(path)`              | `Result<List<String>, Error>`|
-| `size(path)`                  | `Result<Int, Error>`         |
-| `exists(path)`                | `Bool`                       |
-| `is_file(path)` / `is_dir(path)` | `Bool`                    |
-| `split_lines(s)`              | `List<String>`               |
+`min`, `max`, `clamp`, `min_of`, `max_of`, `sort`, `sorted_by`. Classes get
+ordering with `@derive(Ord)`.
 
-```raven
-match read("data.txt") {
-    Ok(body) -> print("${split_lines(body).len()} lines"),
-    Err(e) -> print("read failed"),
-}
-```
+## std.iter
 
-`std/path` provides `join`, `basename`, `dirname`, `extension`, `stem`, `is_absolute`.
+Lazy adapters over an `Iterator[T]`: `from_list(xs)`, then `map`, `filter`,
+`take`, `skip`, `enumerate`, and consumers `collect`, `sum`, `product`,
+`count`, `fold`, `find`, `any`, `all`, `min`, `max`, `last`, `nth`,
+`for_each`. List methods and comprehensions cover most uses.
 
-## std/time
-
-```raven
-import std/time { now, now_millis, from_timestamp, format_timestamp, parse_timestamp, weekday, sleep_millis }
-```
-
-`now()` is Unix seconds, `now_millis()` is Unix milliseconds (both `Int`). `from_timestamp(ts)` builds a `DateTime`; `format_timestamp(ts, pattern)` and `parse_timestamp(text, pattern) -> Result<Int, Error>` convert.
-
-## std/json
-
-```raven
-import std/json { JsonValue, parse, stringify }
-```
-
-```raven
-enum JsonValue {
-    Null,
-    Bool(Bool),
-    Number(Float),
-    Str(String),
-    Array(List<JsonValue>),
-    Object(Map<String, JsonValue>),
-}
-```
-
-`parse(text) -> Result<JsonValue, Error>`, `stringify(value) -> String`. Build values with the qualified constructors: `JsonValue.Str("x")`, `JsonValue.Number(2.0)`, `JsonValue.Object(map)`. `@derive(ToJson, FromJson)` on your own types gives `to_json()` / `Type.from_json(v)`.
-
-## std/sync
-
-```raven
-import std/sync { channel, channel_buffered, yield_now, sleep_millis, mutex, wait_group, select_recv }
-```
-
-Goroutines (`spawn`) run in parallel on a per-core worker pool; a goroutine suspends only at a blocking point and may resume on a different worker.
-
-- **Channels.** `channel()` is unbuffered, `channel_buffered(cap)` holds up to `cap`. `ch.send(Int)` and `ch.recv() -> Int` block when full/empty. Channels carry `Int` in this release. `ch.free()` releases the registry entry (no destructor).
-- **`yield_now()`** hands control to another ready goroutine; **`sleep_millis(ms)`** parks the current one.
-- **`Mutex`** (`mutex()`): `m.lock()` blocks until free, `m.unlock()` releases (call only while held).
-- **`WaitGroup`** (`wait_group()`): `wg.add(n)` before spawning, `wg.done()` as each unit finishes, `wg.wait()` blocks until the count hits zero; `wg.free()` when done.
-- **`select_recv(channels: List<Channel>) -> SelectResult`** blocks until one channel has a value; `SelectResult` is `{ index, value }` (lowest ready index wins, `index` is -1 for an empty list). It frees its own select set.
-
-## std/fmt
-
-```raven
-import std/fmt { pad_left, pad_right, center, join, to_hex, format_float }
-```
-
-String formatting helpers: `pad_left`/`pad_right`/`center(s, width, fill)`, `repeat(s, n)`, `join(parts, sep)`, radix conversion `to_hex`/`to_binary`/`to_octal`/`to_radix(n, base)` and back with `from_hex`/`from_radix`, `format_float(x, decimals)`, and `pad_int(n, width)`.
-
-## std/cmp
-
-```raven
-import std/cmp { min, max, clamp, sort, sorted_by }
-```
-
-`min`/`max`/`clamp` over orderable values, `sort(list) -> List<T>` and `sorted_by(list, key)` return sorted copies. `sort` relies on ordering, so it works on numbers, `String`, and any `struct`/`enum` that derives `@derive(Ord)` (which provides `compare(self, other) -> Int`, comparing structs field-by-field in declaration order and enums by variant order then payload).
-
-```raven
-import std/cmp { sort }
-
-@derive(Ord)
-struct Version { major: Int, minor: Int }
-
-fun main() {
-    let vs = sort([Version { major: 1, minor: 2 }, Version { major: 1, minor: 0 }])
-    print("${vs[0].minor}")   // 0
-}
-```
-
-## std/random
-
-```raven
-import std/random { Rng }
-```
-
-`Rng.new(seed)` is deterministic; `Rng.from_entropy()` seeds from a runtime source (distinct on every call as of 2.0.1). Methods: `next_int()` (full i64), `gen_range(lo, hi)` (half-open), `next_float()` (`[0,1)`), `next_bool()`, `choice(list) -> Option<T>`, `shuffle(list)`. Hold one `Rng` and draw many values from it.
-
-## std/ffi
-
-```raven
-import std/ffi { alloc, free, load, store, offset, is_null, null_ptr }
-```
-
-Raw memory for the C FFI: `alloc<T>(n)`, `free<T>(p)`, `store<T>(p, v)`, `load<T>(p) -> T`, `offset<T>(p, i)`, `is_null<T>(p)`, `null_ptr<T>()`. C types (`CInt`, `CStr`, `CPtr<T>`, `CFnPtr`, …) are built in; declare foreign functions in an `extern "C"` block.
-
-## std/net, std/http, std/tls, std/process, std/env, std/regex, std/encoding, std/test
-
-Convenience modules over sockets, HTTP, TLS, subprocesses, environment variables, regular expressions, byte/string encoding, and test assertions. The APIs are small; read `stdlib/std/<module>.rv` for the current set (for example `import std/http`, `import std/net { connect }`, `import std/env { get_env }`, `import std/regex { compile }`, `import std/test { assert, assert_eq_int }`).
-
-`std/tls` is client-side TLS for raw encrypted streams (the transport for database/cache clients). `connect(addr, server_name)` verifies against the bundled root store; `connect_with(addr, server_name, config())` takes a builder with `add_ca_file` (private CA), `client_cert` (mutual TLS), and `insecure_skip_verify` (dev only). For protocols that start in plaintext and then negotiate TLS on the same socket (Postgres `SSLRequest`, MySQL, SMTP STARTTLS), `connect` with `std/net`, do the start-TLS step, then `upgrade(tcp_stream, server_name)` (or `upgrade_with`) to get a `TlsStream` over that socket. `TlsStream` reads/writes bytes in a `String` buffer like `std/net`. Outbound `https://` through the `std/http` client already works (ureq-backed), so it needs nothing from `std/tls`.
-
-```raven
-import std/tls { connect }
-
-match connect("example.com:443", "example.com") {
-    Ok(s) -> {
-        let _ = s.write("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")
-        let head = s.read(64)
-        s.close()
-    },
-    Err(e) -> println(e.message()),
-}
-```
-
----
-
-## When you don't see it here
-
-Read the source in the Raven repo:
-
-```bash
-ls stdlib/std/            # all modules
-cat stdlib/std/<module>.rv  # exact functions, structs, and methods
-```
-
-Every top-level `fun`, `struct`, `enum`, and `trait` in those files is importable.
+## std.sync
+
+`channel() -> Channel[T]`, `channel_buffered(n)`, with `ch.send(x)`,
+`ch.recv()`; `select_recv`; `mutex()` with `lock()` and
+`unlock()`; `wait_group()`; `yield_now()`, `sleep_millis`. Start work with
+the `spawn { }` statement.
+
+## std.net
+
+`connect(addr) -> Result[TcpStream, Error]`, `listen(addr) -> TcpListener`
+with `accept()`; a stream has `read()`, `read_all()`, `write(s)`, `close()`,
+and read/write timeouts. Also `dns_lookup`, `reachable`.
+
+## std.http
+
+Client: `get(url)`, `post(url, body)`, `put`, `patch`, `delete`, `head`,
+`request(...)`, `request_with_timeout`, each returning
+`Result[Response, Error]` with `status` and `body`. Server:
+`Server.new()`, `app.get("/path/:id", handler)`, `app.post(...)`,
+`app.listen("127.0.0.1:8080")`; a handler is
+`fun(req: Request) -> Response`, built with `Response.text(s)`,
+`Response.html(s)`, `Response.json(value)` (any `ToJson`),
+`Response.json_raw(s)`, `Response.not_found()`, `Response.with_body(code, s)`;
+`req.param("id")`, `req.query_value("q")`, `req.header(name)`,
+`req.json[T]()`. Also `app.put`, `app.delete`, `app.static(dir)`,
+`with_timeout(ms)`, `shutdown()`.
+
+## std.tls
+
+`connect(host_port, server_name) -> Result[TlsStream, Error]`,
+`connect_with(config, ...)`, `upgrade(tcp, server_name)` for STARTTLS,
+`config()` for a `TlsConfig`. `TlsStream` has `read`, `read_all`,
+`write`, `close`, and timeouts.
+
+## std.ffi
+
+`alloc[T](n) -> CPtr[T]`, `free`, `load(p)`, `store(p, v)`, `offset(p, i)`,
+`null_ptr`, `is_null`, `to_cstr(s)`, `from_cstr(p)`, `free_cstr`.
+Declare C functions in `extern "C" { ... }` and lay classes out with
+`@repr(C)`.
+
+## std.test
+
+`assert_true`, `assert_false`, `assert_eq(a, b)`, `assert_ne`,
+`assert_eq_int`, `assert_eq_str`, `assert_eq_float(a, b, eps)`,
+`assert_msg(cond, msg)`, `assert_some`, `assert_none`, `assert_ok`,
+`assert_err`. The built-in `assert cond, msg` statement needs no import.
+Tests are `fun test_*()` in `*_test.rv` files, run by `rvpm test [NAME]`.
+
+## std.error (prelude)
+
+`Error` with `message()`, `kind()`, and `with_context(text)`; `error(msg)`, `error_kind(kind, msg)`,
+and the `Result` helpers `ok`, `err`, `is_ok`, `is_err`, `map_ok`,
+`map_err`, `unwrap_or`, `unwrap_or_else`.

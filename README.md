@@ -1,6 +1,6 @@
 # raven-language-skill
 
-A Skill that teaches Agents how to write [Raven](https://raven.ufazien.com) v2 code: a statically-typed, compiled language with generics, traits, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. It steers agents away from the language's syntax traps so the first version of their code parses, type-checks, and links.
+A Skill that teaches agents how to write [Raven](https://raven.ufazien.com) 3 code. Raven reads like Python with braces and compiles to native code, with classes, traits, generics, sum types, pattern matching, concurrency, a C FFI, and metaprogramming. The skill steers agents past the syntax traps so the first version of their code compiles.
 
 # How to use this Skill
 
@@ -12,19 +12,19 @@ npx skills add martian56/raven-language-skill
 
 ```
 raven-language-skill/
-├── SKILL.md                # always-loaded brief: v2 pitfalls + templates + cheatsheet
+├── SKILL.md                # always-loaded brief: pitfalls, templates, workflow
 ├── references/
-│   ├── builtins.md         # always-available functions and the List/String methods
-│   ├── stdlib.md           # per-module API for std/io, std/string, std/collections, std/iter, std/math, std/fs, std/time, std/json, std/sync, std/ffi, …
-│   ├── rvpm.md             # rvpm subcommands, rv.toml, GitHub-direct packages, the raven CLI
-│   └── grammar.md          # lexical structure, operator precedence, type rules, what exists and what doesn't
+│   ├── builtins.md         # builtins and the str, list, dict, set, Option, Result methods
+│   ├── stdlib.md           # per-module API for the std.* modules
+│   ├── rvpm.md             # rvpm and raven commands, rv.toml, imports and packages
+│   └── grammar.md          # lexical rules, precedence, declarations, patterns, types
 ├── README.md
 └── LICENSE
 ```
 
-The references are loaded on demand so the always-on context stays small.
+The references load on demand so the always-on context stays small.
 
-This skill targets Raven v2. Raven v1 was a tree-walking interpreter with a different syntax; v2 is a clean break (compiled, no semicolons, PascalCase types, traits and generics, GitHub-direct packages).
+This skill targets Raven 3. Raven 2 used an older syntax (`struct`, `Int`, `List<T>`, `&&`, `import std/x { }`) that Raven 3 no longer compiles.
 
 ## License
 
